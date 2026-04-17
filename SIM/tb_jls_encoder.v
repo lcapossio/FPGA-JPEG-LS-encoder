@@ -76,6 +76,23 @@ end
 
 
 // -------------------------------------------------------------------------------------------------------------------
+//   Optional debug trace: with -D DUMP_EX the testbench writes a per-cycle log of
+//   key pipeline signals to ex_trace.txt. Useful for cycle-accurate pre/post-RTL
+//   diffs when investigating encoder regressions. No effect when DUMP_EX is unset.
+// -------------------------------------------------------------------------------------------------------------------
+`ifdef DUMP_EX
+integer trace_fp = 0;
+initial trace_fp = $fopen("./ex_trace.txt", "w");
+always @(posedge clk)
+    if(rstn)
+        $fwrite(trace_fp, "t=%0t fno=%0d e_e=%0d e_x=%02x e_q=%0d e_err=%0d o_e=%0d o_data=%04x\n",
+            $time, file_no,
+            u_jls_encoder.e_e, u_jls_encoder.e_x, u_jls_encoder.e_q, u_jls_encoder.e_err,
+            u_jls_encoder.o_e, u_jls_encoder.o_data);
+`endif
+
+
+// -------------------------------------------------------------------------------------------------------------------
 //   signals for jls_encoder module
 // -------------------------------------------------------------------------------------------------------------------
 reg        i_sof = 0;
