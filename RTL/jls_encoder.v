@@ -1046,8 +1046,15 @@ end
 // linebuffer for context pixels
 //-------------------------------------------------------------------------------------------------------------------
 reg [7:0] linebuffer [0:(1<<14)-1];
-always @ (posedge clk)  // line buffer read
-    c_d <= linebuffer[a_ii];
+// Write-forward bypass: at the minimum supported width (W=5) the a→e pipeline
+// depth equals the row length, so the next row's linebuffer read collides with
+// the current row's write on the same clock edge. Forward e_x directly when the
+// read and write addresses coincide; for W>5 the addresses never match so the
+// normal read path is taken. e_x is the reconstructed pixel, correct for both
+// lossless and lossy modes, and the mux sits on the read path only (no extra
+// combinational delay on the RAM write port).
+always @ (posedge clk)  // line buffer read (with write-forward bypass)
+    c_d <= (e_e & (e_ii == a_ii)) ? e_x : linebuffer[a_ii];
 always @ (posedge clk)  // line buffer write
     if(e_e) linebuffer[e_ii] <= e_x;
 

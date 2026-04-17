@@ -129,10 +129,19 @@ The runner compiles the testbench, runs each image through `jls_encoder`, and co
 
 You can also use the following options:
 
-- `--near N` — set NEAR value (default 0, range 0–7)
-- `--bubble N` — insert N bubbles between pixels (negative = random 0..N)
+- `--near N [N ...]` — one or more NEAR values (default 0, range 0–7)
+- `--bubble N [N ...]` — one or more BUBBLE_CONTROL values (default -1 = random 0..1; 0 = no bubbles, max throughput; N>0 = constant N bubbles between pixels)
 - `--regen-golden` — regenerate golden reference files
 - `--no-check` — run without comparing to golden files
+
+Passing multiple values to `--near` and/or `--bubble` runs the full (near × bubble) regression matrix in a single invocation. Golden files depend only on NEAR (bubbles change timing, not encoded bytes), so one golden set per NEAR is generated once and reused across bubble values. Example:
+
+```bash
+# Full regression: 4 NEAR values × 4 bubble settings = 16 runs, one invocation
+python SIM/run_sim.py --near 0 1 3 7 --bubble 0 -1 1 3
+```
+
+The testbench emits a minimal `[alive] t=<time>` heartbeat every 2M clocks (override via `-D HEARTBEAT_CYCLES=...`) so long runs can be monitored without polluting simulation output.
 
 　
 
@@ -306,10 +315,19 @@ python SIM/run_sim.py
 
 可选参数：
 
-- `--near N` — 设置 NEAR 值（默认 0，范围 0–7）
-- `--bubble N` — 相邻像素间插入 N 个气泡（负数表示随机 0..N）
+- `--near N [N ...]` — 一个或多个 NEAR 值（默认 0，范围 0–7）
+- `--bubble N [N ...]` — 一个或多个 BUBBLE_CONTROL 值（默认 -1 = 随机 0..1；0 = 无气泡最大吞吐；N>0 = 相邻像素间固定插入 N 个气泡）
 - `--regen-golden` — 重新生成黄金参考文件
 - `--no-check` — 仅运行，不与黄金文件比较
+
+同时给 `--near` 和 `--bubble` 传多个值时，一次调用即可运行完整的 (near × bubble) 回归矩阵。黄金文件只依赖 NEAR（气泡只影响时序，不影响编码字节），因此每个 NEAR 的黄金文件只需生成一次，并在不同气泡设置之间复用。例：
+
+```bash
+# 完整回归：4 个 NEAR 值 × 4 种气泡设置 = 16 次运行，一条命令
+python SIM/run_sim.py --near 0 1 3 7 --bubble 0 -1 1 3
+```
+
+Testbench 每 2M 时钟发一条极简 `[alive] t=<time>` 心跳（可通过 `-D HEARTBEAT_CYCLES=...` 覆盖），以便长时间运行中确认仿真存活而不污染输出。
 
 ## 查看压缩结果
 

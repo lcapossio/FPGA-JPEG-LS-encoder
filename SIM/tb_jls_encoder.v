@@ -59,6 +59,23 @@ initial begin repeat(4) @(posedge clk); rstn<=1'b1; end
 
 
 // -------------------------------------------------------------------------------------------------------------------
+//   heartbeat: one minimal line every HEARTBEAT_CYCLES clocks so the outer harness
+//   can confirm the simulation is alive without polluting or slowing the run.
+// -------------------------------------------------------------------------------------------------------------------
+`ifndef HEARTBEAT_CYCLES
+`define HEARTBEAT_CYCLES 2000000
+`endif
+integer hb_cnt = 0;
+always @(posedge clk) begin
+    hb_cnt <= hb_cnt + 1;
+    if(hb_cnt >= `HEARTBEAT_CYCLES) begin
+        hb_cnt <= 0;
+        $display("  [alive] t=%0t", $time);
+    end
+end
+
+
+// -------------------------------------------------------------------------------------------------------------------
 //   signals for jls_encoder module
 // -------------------------------------------------------------------------------------------------------------------
 reg        i_sof = 0;
