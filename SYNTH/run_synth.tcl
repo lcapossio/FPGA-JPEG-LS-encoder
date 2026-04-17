@@ -72,11 +72,8 @@ report_timing_summary \
     -warn_on_violation \
     -file "$OUT_DIR/timing_route.rpt"
 
-report_timing \
-    -from [all_registers -output_pins] \
-    -to   [all_registers -input_pins] \
+report_timing_summary \
     -max_paths 5 \
-    -sort_by slack \
     -file "$OUT_DIR/timing_worst_paths.rpt"
 
 report_clock_utilization -file "$OUT_DIR/clock_util.rpt"
@@ -86,7 +83,11 @@ report_power             -file "$OUT_DIR/power.rpt"
 # 5. Print summary to console
 # ---------------------------------------------------------------------------
 set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
-set tns [get_property TNS   [get_timing_paths -max_paths 1 -nworst 1 -setup]]
+# TNS isn't a timing_path property; parse it out of the design timing summary.
+set tsum [report_timing_summary -no_header -no_detailed_paths -return_string -quiet]
+if {[regexp {TNS\s*\(ns\)[^\n]*\n[^\n]*\n\s*([-\d.]+)\s+([-\d.]+)} $tsum _ _wns _tns]} {
+    set tns $_tns
+} else { set tns 0.000 }
 
 puts ""
 puts "================================================================"

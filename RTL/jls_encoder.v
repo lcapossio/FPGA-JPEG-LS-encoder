@@ -397,7 +397,7 @@ reg [ 7:0] c_x;
 reg [ 7:0] c_b;
 reg [ 7:0] c_bt;
 reg [ 7:0] c_c;
-reg [ 7:0] c_d;
+wire[ 7:0] c_d;  // see linebuffer section — muxed post-BRAM
 
 always @ (posedge clk) begin
     c_sof <= b_sof & rstn;
@@ -1052,18 +1052,22 @@ end
 //-------------------------------------------------------------------------------------------------------------------
 // linebuffer for context pixels
 //-------------------------------------------------------------------------------------------------------------------
-reg [7:0] linebuffer [0:(1<<14)-1];
+(* ram_style = "block" *) reg [7:0] linebuffer [0:(1<<14)-1];
 // Write-forward bypass: at the minimum supported width (W=5) the a→e pipeline
 // depth equals the row length, so the next row's linebuffer read collides with
-// the current row's write on the same clock edge. Forward e_x directly when the
-// read and write addresses coincide; for W>5 the addresses never match so the
-// normal read path is taken. e_x is the reconstructed pixel, correct for both
-// lossless and lossy modes, and the mux sits on the read path only (no extra
-// combinational delay on the RAM write port).
-always @ (posedge clk)  // line buffer read (with write-forward bypass)
-    c_d <= (e_e & (e_ii == a_ii)) ? e_x : linebuffer[a_ii];
-always @ (posedge clk)  // line buffer write
-    if(e_e) linebuffer[e_ii] <= e_x;
+// the current row's write on the same clock edge. The read must forward e_x in
+// that case. To keep BRAM inference (no mux on the RAM output path), register
+// the RAM read, e_x, and the bypass condition separately, then mux them into
+// c_d combinationally — Vivado then maps the array to BRAM and the bypass mux
+// becomes plain LUT logic at the BRAM output port.
+reg [7:0] c_d_ram;
+reg [7:0] e_x_fwd;
+reg       fwd_en;
+always @ (posedge clk) c_d_ram <= linebuffer[a_ii];
+always @ (posedge clk) e_x_fwd <= e_x;
+always @ (posedge clk) fwd_en  <= e_e & (e_ii == a_ii);
+always @ (posedge clk) if(e_e) linebuffer[e_ii] <= e_x;
+assign c_d = fwd_en ? e_x_fwd : c_d_ram;
 
 
 //-------------------------------------------------------------------------------------------------------------------

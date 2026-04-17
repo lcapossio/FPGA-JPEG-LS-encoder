@@ -173,11 +173,13 @@ Synthesized and implemented with Vivado 2025.2 on **Xilinx Artix-7 xc7a100tcsg32
 
 | Logic LUTs  |  LUT-RAMs   |     FFs      |       BRAM        | Max Clock freq. |
 | :---------: | :---------: | :----------: | :---------------: | :-------------: |
-| 1896 (3.0%) | 288 (0.5%)  | 1007 (0.8%)  | 4 × RAMB36 (3.0%) |   ~65.7 MHz     |
+| 1910 (3.0%) | 288 (1.5%)  | 1010 (0.8%)  | 4 × RAMB36 (3.0%) |   ~63.8 MHz     |
 
-At 65.7 MHz, compression throughput is **65.7 Mpixel/s**, supporting:
-- **1920×1080 @ 31 fps** (full HD)
-- **1280×720 @ 71 fps** (720p, well above the 60 fps target)
+At 63.8 MHz, compression throughput is **63.8 Mpixel/s**, supporting:
+- **1920×1080 @ 30 fps** (full HD)
+- **1280×720 @ 69 fps** (720p)
+
+The 16 KB linebuffer is mapped to 4 × RAMB36 by declaring `(* ram_style = "block" *)` on the array and registering the write-forward bypass separately so the RAM read port is a clean `c_d_ram <= linebuffer[a_ii]`. Without that split, Vivado's inference falls back to distributed RAM (~3300 LUTRAMs). See [RTL/jls_encoder.v:1055-1070](./RTL/jls_encoder.v#L1055-L1070).
 
 Synthesis scripts are in the [SYNTH](./SYNTH) directory:
 
@@ -357,11 +359,13 @@ JPEGLSdec.exe test001.jls -otmp.pgm
 
 |  逻辑 LUT   |  LUT-RAM   |     FF       |       BRAM        | 最高时钟频率 |
 | :---------: | :--------: | :----------: | :---------------: | :----------: |
-| 1896 (3.0%) | 288 (0.5%) | 1007 (0.8%)  | 4 × RAMB36 (3.0%) |  ~65.7 MHz   |
+| 1910 (3.0%) | 288 (1.5%) | 1010 (0.8%)  | 4 × RAMB36 (3.0%) |  ~63.8 MHz   |
 
-65.7 MHz 下，压缩吞吐量为 **65.7 Mpixel/s**：
-- **1920×1080 @ 31 fps**（全高清）
-- **1280×720 @ 71 fps**（720p，远超 60fps 目标）
+63.8 MHz 下，压缩吞吐量为 **63.8 Mpixel/s**：
+- **1920×1080 @ 30 fps**（全高清）
+- **1280×720 @ 69 fps**（720p）
+
+16 KB 线缓冲通过 `(* ram_style = "block" *)` 属性映射到 4 × RAMB36，并将 write-forward 旁路从 RAM 读端口上分离（使读端口仅为干净的 `c_d_ram <= linebuffer[a_ii]`）。否则 Vivado 会推断为分布式 RAM（约 3300 LUTRAM）。参见 [RTL/jls_encoder.v:1055-1070](./RTL/jls_encoder.v#L1055-L1070)。
 
 综合脚本位于 [SYNTH](./SYNTH) 目录：
 
