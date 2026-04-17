@@ -664,7 +664,14 @@ end
 
 // For lossless: e1_x is a registered value — no combinational path into e1.
 // For lossy:    e_x_comb_r provides the forward path (Cram read + clip + errval + clip).
-assign e_x_comb = P_LOSSY ? e_x_comb_r : e1_x;
+//
+// Bubble handling: e1_* update unconditionally, so during a bubble at e1 (e1_e=0)
+// the combinational e_x_comb_r evaluates against bubble-state e1_* and returns a
+// garbage value. If a valid pixel follows, its d_w_a samples that garbage. Hold
+// the last valid-cycle e_x_comb_r and forward it during bubble cycles instead.
+reg [7:0] e_x_comb_held;
+always @ (posedge clk) if(rstn & e1_e) e_x_comb_held <= e_x_comb_r;
+assign e_x_comb = P_LOSSY ? (e1_e ? e_x_comb_r : e_x_comb_held) : e1_x;
 
 
 //-------------------------------------------------------------------------------------------------------------------
