@@ -208,7 +208,7 @@ integer fail_count = 0;
 integer skip_count = 0;
 
 initial begin
-    $sformat(input_file_format, "%s\\%s.pgm", `INPUT_PGM_DIR, `FILE_NAME_FORMAT);
+    $sformat(input_file_format, "%s/%s.pgm", `INPUT_PGM_DIR, `FILE_NAME_FORMAT);
 
     while(~rstn) @(posedge clk);
 
@@ -250,10 +250,10 @@ end
 // -------------------------------------------------------------------------------------------------------------------
 `ifdef GENERATE_GOLDEN
 reg [256*8:1] out_fmt;
-initial $sformat(out_fmt, "%s\\%s.jls", `GOLDEN_JLS_DIR, `FILE_NAME_FORMAT);
+initial $sformat(out_fmt, "%s/%s.jls", `GOLDEN_JLS_DIR, `FILE_NAME_FORMAT);
 `else
 reg [256*8:1] out_fmt;
-initial $sformat(out_fmt, "%s\\%s.jls", `OUTPUT_JLS_DIR, `FILE_NAME_FORMAT);
+initial $sformat(out_fmt, "%s/%s.jls", `OUTPUT_JLS_DIR, `FILE_NAME_FORMAT);
 `endif
 
 reg [256*8:1] out_name;
@@ -262,7 +262,7 @@ integer       opened  = 0;
 
 `ifdef SELF_CHECK
 reg [256*8:1] gold_fmt;
-initial $sformat(gold_fmt, "%s\\%s.jls", `GOLDEN_JLS_DIR, `FILE_NAME_FORMAT);
+initial $sformat(gold_fmt, "%s/%s.jls", `GOLDEN_JLS_DIR, `FILE_NAME_FORMAT);
 reg [256*8:1] gold_name;
 integer       gold_fp      = 0;
 integer       mismatch_cnt = 0;
