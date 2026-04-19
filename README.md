@@ -187,7 +187,7 @@ Synthesis scripts are in the [SYNTH](./SYNTH) directory:
 vivado -mode batch -source SYNTH/run_synth.tcl
 ```
 
-The pipeline was split into 12 stages (including a two-cycle stage e1→e2 to break the critical path through the context quantisation RAM), which achieves the ~19% clock frequency improvement over the original single-cycle stage e design (~55 MHz).
+The pipeline was split into 12 stages (including a two-cycle stage e1→e2 to break the critical path through the context quantisation RAM), achieving a ~30% Fmax improvement over the original single-cycle stage e design (~49 MHz → ~63.8 MHz, measured post-route on `xc7a100tcsg324-1` at 16 ns constraint).
 
 　
 
@@ -373,7 +373,7 @@ JPEGLSdec.exe test001.jls -otmp.pgm
 vivado -mode batch -source SYNTH/run_synth.tcl
 ```
 
-流水线拆分为 12 级（含 e1→e2 两周期级，用于打断经过上下文量化 RAM 的关键路径），相比原始单周期设计（~55 MHz）时钟频率提升约 19%。
+流水线拆分为 12 级（含 e1→e2 两周期级，用于打断经过上下文量化 RAM 的关键路径），相比原始单周期设计（~49 MHz）Fmax 提升约 30%（post-route 实测 `xc7a100tcsg324-1`、16 ns 约束下 ~63.8 MHz）。
 
 　
 
