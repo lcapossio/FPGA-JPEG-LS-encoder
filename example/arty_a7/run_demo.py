@@ -118,8 +118,8 @@ def decode_status(s: int):
         done      = bool(s & 0x2),
         in_full   = bool(s & 0x4),
         out_empty = bool(s & 0x8),
-        in_count  = (s >> 8)  & 0x7FF,
-        out_count = (s >> 16) & 0xFFF,
+        in_count  = (s >> 8)  & 0x7FF,   # 11 bits, 0..1024
+        out_count = (s >> 16) & 0x1FF,   # 9 bits, 0..256
     )
 
 

@@ -315,8 +315,9 @@ module axi_jls_ctrl #(
         status_word[1]     = done_sticky;
         status_word[2]     = in_full;
         status_word[3]     = out_empty;
-        status_word[18:8]  = in_count[10:0];
-        status_word[27:16] = out_count[11:0];
+        // in_count is $clog2(1024)+1 = 11 bits; out_count is $clog2(256)+1 = 9 bits
+        status_word[8  +: 11] = in_count;
+        status_word[16 +: 9]  = out_count;
     end
 
     always @(posedge clk) begin
