@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
+
 // Simple single-clock BRAM-friendly FIFO for the Arty demo.
 // Show-ahead (first-word-fall-through) read. Not full-featured; sized for
 // the jls_encoder host-AXI path.

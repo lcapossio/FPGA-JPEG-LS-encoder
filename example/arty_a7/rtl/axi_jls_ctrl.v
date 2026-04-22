@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
+
 // AXI4 slave + jls_encoder wrapper for the Arty demo.
 //
 // Register map (byte-addressed, 32-bit regs, little-endian):
@@ -7,6 +10,7 @@
 //   0x000C STATUS  R/O  [0]=busy       [1]=done_sticky
 //                       [2]=in_full    [3]=out_empty
 //                       [18:8]=in_count  [27:16]=out_count
+//                       [28]=out_overflow_sticky
 //   0x0010 NEAR    R/O  [2:0] compile-time NEAR value
 //
 //   0x1000..0x1FFC PIX_IN window (W/O): push 1 pixel per AXI beat,
@@ -80,6 +84,7 @@ module axi_jls_ctrl #(
     reg        done_clear;
     reg        done_sticky;
     reg        busy;
+    reg        out_overflow_sticky;
 
     wire rst_any = rst | soft_reset;
 
@@ -128,7 +133,10 @@ module axi_jls_ctrl #(
     reg  [7:0] enc_x;
     reg [13:0] enc_w, enc_h;
 
-    wire out_backpressure = (out_count >= (OUT_FIFO_DEPTH - 32));
+    // The encoder has a long output pipeline and no downstream ready/stall.
+    // Stop feeding well before the FIFO is actually full so in-flight words
+    // can drain into the FIFO without being dropped.
+    wire out_backpressure = (out_count >= (OUT_FIFO_DEPTH - 64));
     wire feed_go = (feed_state == F_FEED) && !in_empty && !out_backpressure;
 
     assign in_rd_en = feed_go;
@@ -202,10 +210,12 @@ module axi_jls_ctrl #(
         if(rst_any) begin
             busy        <= 1'b0;
             done_sticky <= 1'b0;
+            out_overflow_sticky <= 1'b0;
         end else begin
             if(sof_strobe)        busy        <= 1'b1;
             if(o_e && o_last)  begin busy <= 1'b0; done_sticky <= 1'b1; end
             if(done_clear)        done_sticky <= 1'b0;
+            if(o_e && out_full)   out_overflow_sticky <= 1'b1;
         end
     end
 
@@ -318,6 +328,7 @@ module axi_jls_ctrl #(
         // in_count is $clog2(1024)+1 = 11 bits; out_count is $clog2(256)+1 = 9 bits
         status_word[8  +: 11] = in_count;
         status_word[16 +: 9]  = out_count;
+        status_word[28]       = out_overflow_sticky;
     end
 
     always @(posedge clk) begin

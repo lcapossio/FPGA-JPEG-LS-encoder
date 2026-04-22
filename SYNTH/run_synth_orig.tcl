@@ -1,10 +1,14 @@
-set OUT_DIR "C:/Projects/FPGA-JPEG-LS-encoder/SYNTH/vivado_out_orig"
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
+
+set SYNTH_DIR [file normalize [file dirname [info script]]]
+set OUT_DIR [file normalize $SYNTH_DIR/vivado_out_orig]
 file mkdir $OUT_DIR
 
 create_project -in_memory -part xc7a100tcsg324-1
 set_property DEFAULT_LIB work [current_project]
-read_verilog  "C:/Projects/FPGA-JPEG-LS-encoder/SYNTH/jls_encoder_orig.v"
-read_xdc      "C:/Projects/FPGA-JPEG-LS-encoder/SYNTH/jls_encoder.xdc"
+read_verilog  [file normalize $SYNTH_DIR/jls_encoder_orig.v]
+read_xdc      [file normalize $SYNTH_DIR/jls_encoder.xdc]
 
 synth_design -top jls_encoder -part xc7a100tcsg324-1 -flatten_hierarchy rebuilt -directive PerformanceOptimized
 write_checkpoint -force "$OUT_DIR/post_synth.dcp"

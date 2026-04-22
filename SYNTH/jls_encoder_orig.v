@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
 
 //--------------------------------------------------------------------------------------------------------
 // Module  : jls_encoder
@@ -955,4 +957,3 @@ assign o_data = {k_data[7:0], k_data[15:8]};
 
 
 endmodule
-

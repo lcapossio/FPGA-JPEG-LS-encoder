@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
+
 # Arty A7-100T constraints for the JPEG-LS encoder demo.
 # Board: Digilent Arty A7-100T  (xc7a100tcsg324-1)
 

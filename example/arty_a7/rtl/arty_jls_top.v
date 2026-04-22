@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
+
 // Arty A7-100T top for the JPEG-LS encoder demo.
 // 100 MHz input clock → MMCM → 50 MHz fabric clock
 // EJTAG-AXI bridge from fpgacapZero provides AXI4 over JTAG

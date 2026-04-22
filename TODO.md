@@ -1,9 +1,11 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com -->
+
 # TODO / Improvement Suggestions
 
 ## 1. Color (RGB) Support — Biggest Feature Gap
 Currently hardwired to a single 8-bit grayscale pixel (`i_x`). JPEG-LS (ITU-T T.87)
 defines interleaved color modes (ILV=0/1/2).
-- **Quick approach:** instantiate 3 parallel `jls_encoder` modules (one per channel) and mux output streams.
 - **Full approach:** implement inter-channel prediction (ILV=2) for better compression, requiring a more coupled design.
 
 ## 2. AXI4-Stream Interface
