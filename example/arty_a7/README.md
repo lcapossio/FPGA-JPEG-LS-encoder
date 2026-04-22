@@ -41,8 +41,9 @@ NEAR is a synthesis parameter — rebuild the bitstream to change it. The defaul
 
 - Vivado 2020+ (tested with 2025.2), in `PATH` or pointed at via `$VIVADO`
 - Xilinx `hw_server` running (auto-started by Vivado Lab Tools)
-- fpgacapZero repo cloned (default: `C:/Projects/fpgacapZero`); set `FCAPZ_ROOT` to override
-- fpgacapZero Python host installed: `pip install -e $FCAPZ_ROOT`
+- `fcapz/` git submodule initialized: `git submodule update --init --recursive`
+- fpgacapZero Python host installed: `python -m pip install -e fcapz`
+- optional override for a different checkout: set `FCAPZ_ROOT`
 - Arty A7-100T connected via USB
 
 ## Build
@@ -105,3 +106,5 @@ JTAG is the bottleneck. Typical observed speeds with the onboard FT2232H at 30 M
 | `constraints/arty_jls.xdc`         | Pinout + clock constraints                              |
 | `build.tcl`                        | Vivado batch build                                      |
 | `run_demo.py`                      | One-script host driver                                  |
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com -->

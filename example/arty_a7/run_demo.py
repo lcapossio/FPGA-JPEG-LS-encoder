@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
+
 """
 Arty A7-100T JPEG-LS encoder demo runner.
 
@@ -35,7 +38,9 @@ JLS_ROOT       = HERE.parent.parent
 BITFILE        = HERE / "arty_jls_top.bit"
 BUILD_TCL      = HERE / "build.tcl"
 REF_DECODER    = JLS_ROOT / "SIM" / "JPEGLSdec.exe"
-FCAPZ_ROOT     = Path(os.environ.get("FCAPZ_ROOT", "C:/Projects/fpgacapZero"))
+FCAPZ_ROOT     = Path(
+    os.environ.get("FCAPZ_ROOT", str(JLS_ROOT / "fcapz"))
+).resolve()
 
 # -- Register map (must match axi_jls_ctrl.v) --
 REG_CTRL    = 0x0000
@@ -50,7 +55,7 @@ CTRL_SOFT_RESET = 1 << 0
 CTRL_SOF        = 1 << 1
 CTRL_DONE_CLEAR = 1 << 2
 
-BURST_MAX = 256  # AXI4 max (and FIFO_DEPTH in bridge = 256)
+BATCH_MAX = 256  # chunk pushes/pulls this many words per JTAG batch
 
 
 def sh(cmd, **kw):
@@ -114,13 +119,68 @@ def load_pgm(path: Path):
 # ---------------------------------------------------------------------------
 def decode_status(s: int):
     return dict(
-        busy      = bool(s & 0x1),
-        done      = bool(s & 0x2),
-        in_full   = bool(s & 0x4),
-        out_empty = bool(s & 0x8),
-        in_count  = (s >> 8)  & 0x7FF,   # 11 bits, 0..1024
-        out_count = (s >> 16) & 0x1FF,   # 9 bits, 0..256
+        busy         = bool(s & 0x1),
+        done         = bool(s & 0x2),
+        in_full      = bool(s & 0x4),
+        out_empty    = bool(s & 0x8),
+        in_count     = (s >> 8)  & 0x7FF,   # 11 bits, 0..1024
+        out_count    = (s >> 16) & 0x1FF,   # 9 bits, 0..256
+        out_overflow = bool((s >> 28) & 0x1),
     )
+
+
+def format_status(st: dict[str, int | bool]) -> str:
+    return (
+        "busy={busy} done={done} in_full={in_full} out_empty={out_empty} "
+        "in_count={in_count} out_count={out_count} out_overflow={out_overflow}"
+    ).format(**st)
+
+
+def read_bridge_cfg(bridge, addr: int) -> int:
+    from fcapz.ejtagaxi import CMD_CONFIG, CMD_NOP
+
+    bridge._scan(CMD_CONFIG, addr=addr)
+    _, _, rdata, _ = bridge._scan(CMD_NOP)
+    return rdata
+
+
+def dump_bridge_debug(bridge) -> str:
+    regs = {
+        "resp_wr_count": 0x01A0,
+        "resp_wr0_data": 0x01A4,
+        "resp_wr0_meta": 0x01A8,
+        "resp_wr1_data": 0x01AC,
+        "resp_wr1_meta": 0x01B0,
+        "resp_wr2_data": 0x01B4,
+        "resp_wr2_meta": 0x01B8,
+        "resp_wr3_data": 0x01BC,
+        "resp_wr3_meta": 0x01C0,
+        "resp_cap_count": 0x01C4,
+        "resp_cap0_data": 0x01C8,
+        "resp_cap0_meta": 0x01CC,
+        "resp_cap1_data": 0x01D0,
+        "resp_cap1_meta": 0x01D4,
+        "resp_cap2_data": 0x01D8,
+        "resp_cap2_meta": 0x01DC,
+        "resp_cap3_data": 0x01E0,
+        "resp_cap3_meta": 0x01E4,
+        "axi_deq_count": 0x01E8,
+        "axi_deq0_addr": 0x01EC,
+        "axi_deq0_meta": 0x01F0,
+        "axi_deq1_addr": 0x01F4,
+        "axi_deq1_meta": 0x01F8,
+        "axi_deq2_addr": 0x01FC,
+        "axi_deq2_meta": 0x0200,
+        "axi_deq3_addr": 0x0204,
+        "axi_deq3_meta": 0x0208,
+    }
+    parts = []
+    for name, addr in regs.items():
+        try:
+            parts.append(f"{name}=0x{read_bridge_cfg(bridge, addr):08X}")
+        except Exception as e:
+            parts.append(f"{name}=<read failed: {e}>")
+    return " ".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +204,8 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
     transport = XilinxHwServerTransport(
         fpga_name="xc7a100t",
         bitfile=str(BITFILE).replace("\\", "/") if not no_program else None,
+        # Skip ELA/USER1 probe — this design only uses USER4 (EJTAG-AXI).
+        ready_probe_addr=None,
     )
     bridge = EjtagAxiController(transport, chain=4)
 
@@ -174,37 +236,66 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
         pix_idx   = 0
         N         = len(pix)
 
-        def drain_some(target_count=None):
-            """Drain up to target_count words (None = drain until empty)."""
+        def drain_some():
+            """Drain everything currently in the out FIFO."""
             nonlocal got_last
             while not got_last:
                 st = decode_status(bridge.axi_read(REG_STATUS))
-                if st["out_count"] == 0:
+                if st["out_overflow"]:
+                    raise RuntimeError(
+                        "Output FIFO overflow detected before drain: "
+                        f"{format_status(st)}"
+                    )
+                n = st["out_count"]
+                if n == 0:
                     return
-                batch = min(st["out_count"], BURST_MAX)
-                words = bridge.burst_read(OUT_BASE, batch)
-                for w32 in words:
-                    data  = w32 & 0xFFFF
-                    last  = bool((w32 >> 16) & 1)
+                # Read words one at a time via WRITE_INC-style reads. burst_read
+                # showed bridge-state issues at >9 beats on this slave; use
+                # single-word reads which are proven reliable.
+                for batch_idx in range(min(n, BATCH_MAX)):
+                    out_word_idx = len(out_bytes) // 2
+                    try:
+                        w32 = bridge.axi_read(OUT_BASE)
+                    except Exception as e:
+                        try:
+                            post_st = decode_status(bridge.axi_read(REG_STATUS))
+                            post_status_msg = format_status(post_st)
+                        except Exception as status_err:
+                            post_status_msg = f"<status read failed: {status_err}>"
+                        bridge_debug = dump_bridge_debug(bridge)
+                        raise RuntimeError(
+                            "OUT_BASE read failed at "
+                            f"word={out_word_idx} byte_off={len(out_bytes)} "
+                            f"batch_idx={batch_idx} "
+                            f"pre_status=({format_status(st)}) "
+                            f"post_status=({post_status_msg}) "
+                            f"bridge_debug=({bridge_debug})"
+                        ) from e
+                    data = w32 & 0xFFFF
+                    last = bool((w32 >> 16) & 1)
                     out_bytes.append(data & 0xFF)
                     out_bytes.append((data >> 8) & 0xFF)
                     if last:
                         got_last = True
-                if target_count is not None and len(out_bytes) >= target_count:
-                    return
+                        break
 
-        # Push pixels: send one pixel per AXI beat (wstrb=0x1), in bursts.
+        # Push pixels via write_block (AXI WRITE_INC; auto-increments address).
+        # Every word lands in the 0x1000 pix-in window and pushes 1 pixel.
         while pix_idx < N:
             st = decode_status(bridge.axi_read(REG_STATUS))
+            if st["out_overflow"]:
+                raise RuntimeError(
+                    "Output FIFO overflow detected during input push: "
+                    f"{format_status(st)}"
+                )
             free = 1024 - st["in_count"]
             if free <= 0:
                 drain_some()
                 continue
-            batch = min(N - pix_idx, free, BURST_MAX)
+            batch = min(N - pix_idx, free, BATCH_MAX)
             chunk = [pix[pix_idx + i] for i in range(batch)]
-            bridge.burst_write(PIX_IN_BASE, chunk, wstrb=0x1)
+            bridge.write_block(PIX_IN_BASE, chunk, wstrb=0x1)
             pix_idx += batch
-            # Interleave a drain so out FIFO doesn't stall encoder
             drain_some()
 
         # All pixels queued — wait for completion
@@ -214,6 +305,11 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
             if got_last:
                 break
             st = decode_status(bridge.axi_read(REG_STATUS))
+            if st["out_overflow"]:
+                raise RuntimeError(
+                    "Output FIFO overflow detected while waiting for completion: "
+                    f"{format_status(st)}"
+                )
             if st["done"] and st["out_count"] == 0:
                 got_last = True
                 break
@@ -243,10 +339,11 @@ def verify_roundtrip(jls_path: Path, src_pgm: Path):
         return None
 
     decoded = jls_path.with_suffix(".decoded.pgm")
-    cmd = [str(REF_DECODER), f"-i{jls_path}", f"-o{decoded}"]
-    r = sh(cmd)
-    if r.returncode != 0 or not decoded.exists():
-        raise RuntimeError(f"Decoder failed: {r.returncode}")
+    # The reference decoder prints banners and can return a non-zero status
+    # even on success; trust file existence instead.
+    sh([str(REF_DECODER), f"-i{jls_path}", f"-o{decoded}"])
+    if not decoded.exists():
+        raise RuntimeError("Decoder did not produce an output file")
 
     # Compare pixels only (skip PGM header)
     _, _, ref_pix = load_pgm(src_pgm)

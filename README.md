@@ -191,6 +191,33 @@ The pipeline was split into 12 stages (including a two-cycle stage e1→e2 to br
 
 　
 
+## Arty A7 demo dependency: fpgacapZero
+
+The hardware demo in [example/arty_a7](./example/arty_a7) depends on the
+[`fcapz/`](./fcapz) git submodule, which tracks
+[fpgacapZero](https://github.com/lcapossio/fpgacapZero), for both:
+
+- the JTAG-to-AXI bridge RTL used by the Vivado build
+- the Python host package `fcapz` used by
+  [`example/arty_a7/run_demo.py`](./example/arty_a7/run_demo.py)
+
+Current default setup:
+
+- RTL dependency path: `./fcapz`
+- optional override for build scripts: `FCAPZ_ROOT`
+- Python package install: `python -m pip install -e fcapz`
+
+Example setup:
+
+```powershell
+git submodule update --init --recursive
+python -m pip install -e fcapz
+python example/arty_a7/run_demo.py --build --image SIM/images/test008.pgm
+```
+
+`FCAPZ_ROOT` remains available if you want to point the build at a different
+checkout during development.
+
 # Reference
 
 - ITU-T T.87 : Information technology – Lossless and near-lossless compression of continuous-tone still images – Baseline : https://www.itu.int/rec/T-REC-T.87/en
@@ -384,3 +411,29 @@ vivado -mode batch -source SYNTH/run_synth.tcl
 - CharLS, a C++ JPEG-LS library implementation : https://github.com/team-charls/charls
 - 精简的 JPEG-LS baseline 编码器 (C语言) : https://github.com/WangXuan95/ImCvt 
 - 另一个高性能的 FPGA-based JPEG-LS encoder : https://github.com/WangXuan95/UH-JLS
+ã€€
+
+## Arty A7 ç¤ºä¾‹ä¾èµ–è¯´æ˜Ž
+
+[example/arty_a7](./example/arty_a7) çš„ç¡¬ä»¶ demo çŽ°åœ¨æ˜Žç¡®ä¾èµ–
+[`fcapz/`](./fcapz) git submoduleï¼Œå®ƒè·Ÿè¸ª [fpgacapZero](https://github.com/lcapossio/fpgacapZero)ï¼Œå¹¶æä¾›:
+
+- Vivado build æ‰€éœ€çš„ JTAG-to-AXI bridge RTL
+- [`example/arty_a7/run_demo.py`](./example/arty_a7/run_demo.py)
+  ä½¿ç”¨çš„ Python host åŒ… `fcapz`
+
+å½“å‰é»˜è®¤çº¦å®š:
+
+- RTL ä¾èµ–è·¯å¾„: `./fcapz`
+- build è„šæœ¬å¯ç”¨ `FCAPZ_ROOT` è¦†ç›–
+- Python å®‰è£…æ–¹å¼: `python -m pip install -e fcapz`
+
+ç¤ºä¾‹:
+
+```powershell
+git submodule update --init --recursive
+python -m pip install -e fcapz
+python example/arty_a7/run_demo.py --build --image SIM/images/test008.pgm
+```
+
+`FCAPZ_ROOT` ä»å¯ä»¥ç”¨æ¥æŒ‡å‘å…¶ä»– checkoutï¼Œä¾¿äºŽå¼€å‘è°ƒè¯•ã€‚

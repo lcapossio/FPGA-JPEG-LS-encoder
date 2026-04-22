@@ -1,16 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
+
 # Vivado batch build for the Arty A7-100T JPEG-LS encoder demo.
 # Usage: vivado -mode batch -source build.tcl
 #
 # Environment:
-#   FCAPZ_ROOT — path to fpgacapZero repo (defaults to C:/Projects/fpgacapZero)
+#   FCAPZ_ROOT — path to fpgacapZero repo (defaults to <repo>/fcapz)
 
 set example_dir [file normalize [file dirname [info script]]]
 set jls_root    [file normalize $example_dir/../..]
 
-set fcapz_root [expr {[info exists ::env(FCAPZ_ROOT)] ? $::env(FCAPZ_ROOT) : "C:/Projects/fpgacapZero"}]
+set default_fcapz_root [file normalize $jls_root/fcapz]
+set fcapz_root [expr {[info exists ::env(FCAPZ_ROOT)] ? $::env(FCAPZ_ROOT) : $default_fcapz_root}]
 if {![file isdirectory $fcapz_root]} {
     puts "ERROR: fpgacapZero not found at $fcapz_root"
-    puts "Set FCAPZ_ROOT or install fpgacapZero at C:/Projects/fpgacapZero"
+    puts "Set FCAPZ_ROOT or initialize the fcapz submodule"
     exit 1
 }
 
