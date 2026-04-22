@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com -->
+
 # Arty A7-100T example — hardware JPEG-LS encoder demo
 
 End-to-end hardware demo of the JPEG-LS encoder on a [Digilent Arty A7-100T](https://digilent.com/reference/programmable-logic/arty-a7/) (`xc7a100tcsg324-1`). Pixels and compressed bytes move over JTAG using the [fpgacapZero](https://github.com/lcapossio/fpgacapZero) EJTAG-AXI bridge — no UART, no extra cables, just the onboard USB-JTAG.
@@ -106,5 +109,3 @@ JTAG is the bottleneck. Typical observed speeds with the onboard FT2232H at 30 M
 | `constraints/arty_jls.xdc`         | Pinout + clock constraints                              |
 | `build.tcl`                        | Vivado batch build                                      |
 | `run_demo.py`                      | One-script host driver                                  |
-<!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com -->
