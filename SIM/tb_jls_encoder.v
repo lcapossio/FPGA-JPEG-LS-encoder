@@ -59,6 +59,38 @@ initial begin repeat(4) @(posedge clk); rstn<=1'b1; end
 
 
 // -------------------------------------------------------------------------------------------------------------------
+//   heartbeat: one minimal line every HEARTBEAT_CYCLES clocks so the outer harness
+//   can confirm the simulation is alive without polluting or slowing the run.
+// -------------------------------------------------------------------------------------------------------------------
+`ifndef HEARTBEAT_CYCLES
+`define HEARTBEAT_CYCLES 2000000
+`endif
+integer hb_cnt = 0;
+always @(posedge clk) begin
+    hb_cnt <= hb_cnt + 1;
+    if(hb_cnt >= `HEARTBEAT_CYCLES) begin
+        hb_cnt <= 0;
+        $display("  [alive] t=%0t", $time);
+    end
+end
+
+
+// -------------------------------------------------------------------------------------------------------------------
+//   Optional debug trace: with -D DUMP_EX the testbench writes a per-cycle log of
+//   key pipeline signals to ex_trace.txt. Useful for cycle-accurate pre/post-RTL
+//   diffs when investigating encoder regressions. No effect when DUMP_EX is unset.
+// -------------------------------------------------------------------------------------------------------------------
+`ifdef DUMP_EX
+integer trace_fp = 0;
+initial trace_fp = $fopen("./ex_trace.txt", "w");
+always @(posedge clk)
+    if(rstn && u_jls_encoder.o_e)
+        $fwrite(trace_fp, "fno=%0d o_data=%04x o_last=%0d\n",
+            file_no, u_jls_encoder.o_data, u_jls_encoder.o_last);
+`endif
+
+
+// -------------------------------------------------------------------------------------------------------------------
 //   signals for jls_encoder module
 // -------------------------------------------------------------------------------------------------------------------
 reg        i_sof = 0;
@@ -176,7 +208,7 @@ integer fail_count = 0;
 integer skip_count = 0;
 
 initial begin
-    $sformat(input_file_format, "%s\\%s.pgm", `INPUT_PGM_DIR, `FILE_NAME_FORMAT);
+    $sformat(input_file_format, "%s/%s.pgm", `INPUT_PGM_DIR, `FILE_NAME_FORMAT);
 
     while(~rstn) @(posedge clk);
 
@@ -218,10 +250,10 @@ end
 // -------------------------------------------------------------------------------------------------------------------
 `ifdef GENERATE_GOLDEN
 reg [256*8:1] out_fmt;
-initial $sformat(out_fmt, "%s\\%s.jls", `GOLDEN_JLS_DIR, `FILE_NAME_FORMAT);
+initial $sformat(out_fmt, "%s/%s.jls", `GOLDEN_JLS_DIR, `FILE_NAME_FORMAT);
 `else
 reg [256*8:1] out_fmt;
-initial $sformat(out_fmt, "%s\\%s.jls", `OUTPUT_JLS_DIR, `FILE_NAME_FORMAT);
+initial $sformat(out_fmt, "%s/%s.jls", `OUTPUT_JLS_DIR, `FILE_NAME_FORMAT);
 `endif
 
 reg [256*8:1] out_name;
@@ -230,7 +262,7 @@ integer       opened  = 0;
 
 `ifdef SELF_CHECK
 reg [256*8:1] gold_fmt;
-initial $sformat(gold_fmt, "%s\\%s.jls", `GOLDEN_JLS_DIR, `FILE_NAME_FORMAT);
+initial $sformat(gold_fmt, "%s/%s.jls", `GOLDEN_JLS_DIR, `FILE_NAME_FORMAT);
 reg [256*8:1] gold_name;
 integer       gold_fp      = 0;
 integer       mismatch_cnt = 0;

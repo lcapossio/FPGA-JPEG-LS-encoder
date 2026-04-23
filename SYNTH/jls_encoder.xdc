@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
+
 # Constraints for jls_encoder on Arty A7-100T (xc7a100tcsg324-1)
 # Timing-closure target: 66.67 MHz (15 ns period)
 # The 100 MHz on-board oscillator is NOT used here — this is an IP core

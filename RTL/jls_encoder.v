@@ -397,7 +397,7 @@ reg [ 7:0] c_x;
 reg [ 7:0] c_b;
 reg [ 7:0] c_bt;
 reg [ 7:0] c_c;
-reg [ 7:0] c_d;
+wire[ 7:0] c_d;  // see linebuffer section — muxed post-BRAM
 
 always @ (posedge clk) begin
     c_sof <= b_sof & rstn;
@@ -664,7 +664,14 @@ end
 
 // For lossless: e1_x is a registered value — no combinational path into e1.
 // For lossy:    e_x_comb_r provides the forward path (Cram read + clip + errval + clip).
-assign e_x_comb = P_LOSSY ? e_x_comb_r : e1_x;
+//
+// Bubble handling: e1_* update unconditionally, so during a bubble at e1 (e1_e=0)
+// the combinational e_x_comb_r evaluates against bubble-state e1_* and returns a
+// garbage value. If a valid pixel follows, its d_w_a samples that garbage. Hold
+// the last valid-cycle e_x_comb_r and forward it during bubble cycles instead.
+reg [7:0] e_x_comb_held;
+always @ (posedge clk) if(rstn & e1_e) e_x_comb_held <= e_x_comb_r;
+assign e_x_comb = P_LOSSY ? (e1_e ? e_x_comb_r : e_x_comb_held) : e1_x;
 
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -1045,11 +1052,22 @@ end
 //-------------------------------------------------------------------------------------------------------------------
 // linebuffer for context pixels
 //-------------------------------------------------------------------------------------------------------------------
-reg [7:0] linebuffer [0:(1<<14)-1];
-always @ (posedge clk)  // line buffer read
-    c_d <= linebuffer[a_ii];
-always @ (posedge clk)  // line buffer write
-    if(e_e) linebuffer[e_ii] <= e_x;
+(* ram_style = "block" *) reg [7:0] linebuffer [0:(1<<14)-1];
+// Write-forward bypass: at the minimum supported width (W=5) the a→e pipeline
+// depth equals the row length, so the next row's linebuffer read collides with
+// the current row's write on the same clock edge. The read must forward e_x in
+// that case. To keep BRAM inference (no mux on the RAM output path), register
+// the RAM read, e_x, and the bypass condition separately, then mux them into
+// c_d combinationally — Vivado then maps the array to BRAM and the bypass mux
+// becomes plain LUT logic at the BRAM output port.
+reg [7:0] c_d_ram;
+reg [7:0] e_x_fwd;
+reg       fwd_en;
+always @ (posedge clk) c_d_ram <= linebuffer[a_ii];
+always @ (posedge clk) e_x_fwd <= e_x;
+always @ (posedge clk) fwd_en  <= e_e & (e_ii == a_ii);
+always @ (posedge clk) if(e_e) linebuffer[e_ii] <= e_x;
+assign c_d = fwd_en ? e_x_fwd : c_d_ram;
 
 
 //-------------------------------------------------------------------------------------------------------------------

@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
+
 """
 JPEG-LS encoder simulation runner.
 
 Usage:
-    python run_sim.py                   # generate golden (if missing) then self-check, NEAR=0
-    python run_sim.py --near 1          # run with NEAR=1
-    python run_sim.py --near 0 1 2      # run for multiple NEAR values
-    python run_sim.py --regen-golden    # force regenerate golden files then self-check
-    python run_sim.py --no-check        # compress only, skip self-check
-    python run_sim.py --bubble 0        # no bubbles (max throughput timing)
+    python run_sim.py                        # NEAR=0, default random bubbles, golden self-check
+    python run_sim.py --near 0 1 2           # multiple NEAR values
+    python run_sim.py --bubble 0 -1 1 3      # multiple BUBBLE_CONTROL values (full matrix)
+    python run_sim.py --regen-golden         # force regenerate golden files
+    python run_sim.py --no-check             # compress only, skip self-check
+
+Goldens depend on NEAR only (bubbles change timing, not encoded bytes), so a single
+golden set per NEAR is generated once and reused across all bubble values.
 """
 
 import argparse
@@ -164,8 +169,9 @@ def main():
         help="NEAR value(s) 0-7 to test (default: 0)",
     )
     parser.add_argument(
-        "--bubble", type=int, default=-1,
-        help="BUBBLE_CONTROL value (default: -1 = random bubbles)",
+        "--bubble", type=int, nargs="+", default=[-1], metavar="B",
+        help="BUBBLE_CONTROL value(s) (default: -1 = random bubbles). "
+             "Multiple values run the full (near × bubble) matrix.",
     )
     parser.add_argument(
         "--regen-golden", action="store_true",
@@ -183,26 +189,36 @@ def main():
             sys.exit(1)
 
     overall_pass = True
+    results = []  # list of (near, bubble, status)
+
+    # Goldens depend only on NEAR, not on bubble timing. Generate once per NEAR using
+    # the first bubble value, then reuse across all bubble values in the matrix.
+    golden_bubble = args.bubble[0]
 
     for near in args.near:
         print(f"\n{'='*60}", flush=True)
         print(f"  NEAR = {near}", flush=True)
         print(f"{'='*60}", flush=True)
 
-        if args.no_check:
-            ok = compress_only(near, args.bubble)
-        else:
+        if not args.no_check:
             if args.regen_golden or not golden_exists(near):
-                ok = generate_golden(near, args.bubble)
+                ok = generate_golden(near, golden_bubble)
                 if not ok:
                     print(f"ERROR: golden generation failed for NEAR={near}", flush=True)
                     overall_pass = False
+                    for b in args.bubble:
+                        results.append((near, b, "SKIP (no golden)"))
                     continue
 
-            ok = self_check(near, args.bubble)
-
-        if not ok:
-            overall_pass = False
+        for bubble in args.bubble:
+            print(f"\n--- NEAR={near}  BUBBLE={bubble} ---", flush=True)
+            if args.no_check:
+                ok = compress_only(near, bubble)
+            else:
+                ok = self_check(near, bubble)
+            results.append((near, bubble, "PASS" if ok else "FAIL"))
+            if not ok:
+                overall_pass = False
 
     # Cleanup
     if SIM_OUT.exists():
@@ -211,6 +227,11 @@ def main():
         CONFIG_VH.unlink()
 
     print(f"\n{'='*60}", flush=True)
+    print("  REGRESSION MATRIX SUMMARY", flush=True)
+    print(f"{'='*60}", flush=True)
+    for near, bubble, status in results:
+        print(f"  NEAR={near}  BUBBLE={bubble:>3}  ->  {status}", flush=True)
+    print(f"{'='*60}", flush=True)
     if overall_pass:
         print("  RESULT: ALL PASSED", flush=True)
     else:
