@@ -1,4 +1,4 @@
-![语言](https://img.shields.io/badge/语言-verilog_(IEEE1364_2001)-9A90FD.svg) ![仿真](https://img.shields.io/badge/仿真-iverilog-green.svg) ![部署](https://img.shields.io/badge/部署-quartus-blue.svg) ![部署](https://img.shields.io/badge/部署-vivado-FF1010.svg)
+![语言](https://img.shields.io/badge/语言-verilog_(IEEE1364_2001)-9A90FD.svg) ![仿真](https://img.shields.io/badge/仿真-iverilog-green.svg) ![部署](https://img.shields.io/badge/部署-vivado-FF1010.svg) [![CI](https://github.com/lcapossio/FPGA-JPEG-LS-encoder/actions/workflows/sim.yml/badge.svg?branch=main)](https://github.com/lcapossio/FPGA-JPEG-LS-encoder/actions/workflows/sim.yml)
 
 [English](#en) | [中文](#cn)
 
