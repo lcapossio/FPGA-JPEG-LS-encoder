@@ -7,12 +7,13 @@
 //--------------------------------------------------------------------------------------------------------
 
 module jls_encoder #(
-    parameter   [ 2:0] NEAR = 3'd0
+    parameter   [ 2:0] NEAR = 3'd0,
+    parameter integer  MAX_WIDTH = 1920
 ) (
     input  wire        rstn,
     input  wire        clk,
     input  wire        i_sof,   // start of image
-    input  wire [13:0] i_w,     // image_width-1 , range: 4~16383, that is, image_width range: 5~16384
+    input  wire [13:0] i_w,     // image_width-1 , runtime range: 4~min(16383, MAX_WIDTH-1)
     input  wire [13:0] i_h,     // image_height-1, range: 0~16382, that is, image_height range: 1~16383
     input  wire        i_e,     // input pixel enable
     input  wire [ 7:0] i_x,     // input pixel
@@ -37,6 +38,8 @@ assign P_QBPPS[6] = 4'd5;
 assign P_QBPPS[7] = 4'd5;
 
 localparam                     P_LOSSY     = (NEAR != 3'd0);
+localparam integer             P_MAX_WIDTH = (MAX_WIDTH < 5) ? 5 : ((MAX_WIDTH > 16384) ? 16384 : MAX_WIDTH);
+localparam        [13:0]       P_MAX_W     = P_MAX_WIDTH - 1;
 localparam        signed [8:0] P_NEAR      = $signed({6'd0, NEAR});
 localparam        signed [8:0] P_T1        = $signed(9'd3) + $signed(9'd3) * P_NEAR;
 localparam        signed [8:0] P_T2        = $signed(9'd7) + $signed(9'd5) * P_NEAR;
@@ -339,7 +342,12 @@ always @ (posedge clk)
         a_w <= i_w;
         a_h <= i_h;
         if(a_sof) begin
-            a_wl <= (a_w<14'd4 ? 14'd4 : a_w);
+            if(a_w < 14'd4)
+                a_wl <= 14'd4;
+            else if(a_w > P_MAX_W)
+                a_wl <= P_MAX_W;
+            else
+                a_wl <= a_w;
             a_hl <= a_h;
             a_ii <= 14'd0;
             a_jj <= 15'd0;
@@ -1052,7 +1060,7 @@ end
 //-------------------------------------------------------------------------------------------------------------------
 // linebuffer for context pixels
 //-------------------------------------------------------------------------------------------------------------------
-(* ram_style = "block" *) reg [7:0] linebuffer [0:(1<<14)-1];
+(* ram_style = "block" *) reg [7:0] linebuffer [0:P_MAX_WIDTH-1];
 // Write-forward bypass: at the minimum supported width (W=5) the a→e pipeline
 // depth equals the row length, so the next row's linebuffer read collides with
 // the current row's write on the same clock edge. The read must forward e_x in

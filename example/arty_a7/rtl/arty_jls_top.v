@@ -65,8 +65,6 @@ module arty_jls_top (
     wire [3:0]  wstrb;
     wire        awvalid, awready, wvalid, wready, wlast, bvalid, bready;
     wire        arvalid, arready, rvalid, rready, rlast;
-    wire [255:0] d_tck, d_tck_e, d_axi, d_axi_e;
-
     fcapz_ejtagaxi_xilinx7 #(
         .ADDR_W    (32),
         .DATA_W    (32),
@@ -90,9 +88,7 @@ module arty_jls_top (
         .m_axi_arprot (arprot),
         .m_axi_rdata  (rdata),  .m_axi_rresp  (rresp),
         .m_axi_rvalid (rvalid), .m_axi_rlast  (rlast),
-        .m_axi_rready (rready),
-        .debug_tck(d_tck), .debug_tck_edge(d_tck_e),
-        .debug_axi(d_axi), .debug_axi_edge(d_axi_e)
+        .m_axi_rready (rready)
     );
 
     // -----------------------------------------------------------------------
@@ -132,7 +128,5 @@ module arty_jls_top (
     // AXI PROT signals unused
     assign awprot = 3'b000;
     assign arprot = 3'b000;
-
-    wire _u = &{1'b0, d_tck, d_tck_e, d_axi, d_axi_e, 1'b0};
 
 endmodule
