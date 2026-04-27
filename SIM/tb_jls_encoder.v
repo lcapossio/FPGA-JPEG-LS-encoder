@@ -180,8 +180,11 @@ endtask
 // -------------------------------------------------------------------------------------------------------------------
 //   jls_encoder instance
 // -------------------------------------------------------------------------------------------------------------------
+// The regression image set includes 16384-wide vectors, so instantiate the
+// encoder at the full supported width instead of the HD-oriented default.
 jls_encoder #(
-    .NEAR ( `NEAR )
+    .NEAR      ( `NEAR ),
+    .MAX_WIDTH ( 16384 )
 ) u_jls_encoder (
     .rstn   ( rstn   ),
     .clk    ( clk    ),
