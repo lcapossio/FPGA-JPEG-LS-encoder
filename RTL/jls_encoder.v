@@ -13,8 +13,8 @@ module jls_encoder #(
     input  wire        rstn,
     input  wire        clk,
     input  wire        i_sof,   // start of image
-    input  wire [13:0] i_w,     // image_width-1 , runtime range: 4~min(16383, MAX_WIDTH-1)
-    input  wire [13:0] i_h,     // image_height-1, range: 0~16382, that is, image_height range: 1~16383
+    input  wire [13:0] i_w,     // image_width-1 , runtime range: 4~16383; rows wider than MAX_WIDTH are cropped to MAX_WIDTH
+    input  wire [13:0] i_h,     // image_height-1, range: 0~16383, that is, image_height range: 1~16384
     input  wire        i_e,     // input pixel enable
     input  wire [ 7:0] i_x,     // input pixel
     output wire        o_e,     // output data enable
@@ -325,12 +325,16 @@ reg signed [ 7:0] Cram [1:364];
 
 //-------------------------------------------------------------------------------------------------------------------
 // pipeline stage a: generate ii, jj
+//   a_wi : input row length-1. Every input row is i_w+1 pixels long.
+//   a_wl : encoded row length-1, a_wi clamped to MAX_WIDTH-1. Columns beyond
+//          a_wl are dropped, so wider images are cropped to their left part.
 //-------------------------------------------------------------------------------------------------------------------
 reg        a_sof;
 reg        a_e;
 reg [ 7:0] a_x;
 reg [13:0] a_w;
 reg [13:0] a_h;
+reg [13:0] a_wi;
 reg [13:0] a_wl;
 reg [13:0] a_hl;
 reg [13:0] a_ii;
@@ -338,7 +342,7 @@ reg [14:0] a_jj;
 
 always @ (posedge clk)
     if(~rstn) begin
-        {a_sof, a_e, a_x, a_w, a_h, a_wl, a_hl, a_ii, a_jj} <= 0;
+        {a_sof, a_e, a_x, a_w, a_h, a_wi, a_wl, a_hl, a_ii, a_jj} <= 0;
     end else begin
         a_sof <= i_sof;
         a_e <= i_e;
@@ -346,6 +350,7 @@ always @ (posedge clk)
         a_w <= i_w;
         a_h <= i_h;
         if(a_sof) begin
+            a_wi <= (a_w < 14'd4) ? 14'd4 : a_w;
             if(a_w < 14'd4)
                 a_wl <= 14'd4;
             else if(a_w > P_MAX_W)
@@ -356,7 +361,7 @@ always @ (posedge clk)
             a_ii <= 14'd0;
             a_jj <= 15'd0;
         end else if(a_e) begin
-            if(a_ii < a_wl)
+            if(a_ii < a_wi)
                 a_ii <= a_ii + 14'd1;
             else begin
                 a_ii <= 14'd0;
@@ -384,7 +389,7 @@ always @ (posedge clk) begin
     if(~rstn | a_sof) begin
         {b_e, b_fc, b_lc, b_fr, b_eof, b_ii, b_x} <= 0;
     end else begin
-        b_e <= a_e & (a_jj <= {1'b0,a_hl});
+        b_e <= a_e & (a_jj <= {1'b0,a_hl}) & (a_ii <= a_wl);
         b_fc <= a_e & (a_ii == 14'd0);
         b_lc <= a_e & (a_ii == a_wl);
         b_fr <= a_e & (a_jj == 15'd0);
@@ -1075,7 +1080,10 @@ end
 reg [7:0] c_d_ram;
 reg [7:0] e_x_fwd;
 reg       fwd_en;
-always @ (posedge clk) c_d_ram <= linebuffer[a_ii];
+// Cropped columns (a_ii > MAX_WIDTH-1) are never used; read address 0 for
+// them so the access stays inside the array.
+wire [13:0] lb_raddr = (a_ii > P_MAX_W) ? 14'd0 : a_ii;
+always @ (posedge clk) c_d_ram <= linebuffer[lb_raddr];
 always @ (posedge clk) e_x_fwd <= e_x;
 always @ (posedge clk) fwd_en  <= e_e & (e_ii == a_ii);
 always @ (posedge clk) if(e_e) linebuffer[e_ii] <= e_x;

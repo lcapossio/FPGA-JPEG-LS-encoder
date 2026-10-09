@@ -48,7 +48,7 @@ parameter integer MAX_WIDTH
 
 `NEAR` determines the NEAR value of JPEG-LS algorithm. When the value is 3'd0, it works in lossless mode; when the value is 3'd1~3'd7, it works in lossy mode.
 
-`MAX_WIDTH` sets the compile-time maximum image width and therefore the depth of the internal linebuffer. The default is `1920`, which is enough for 1920×1080 video. If `i_w+1` is larger than `MAX_WIDTH`, the encoder clamps the active width to `MAX_WIDTH`.
+`MAX_WIDTH` sets the compile-time maximum image width and therefore the depth of the internal linebuffer. The default is `1920`, which is enough for 1920×1080 video. If `i_w+1` is larger than `MAX_WIDTH`, every row is still input in full (`i_w+1` pixels), but only the first `MAX_WIDTH` pixels of each row are encoded: the image is cropped to its left `MAX_WIDTH` columns, and the JPEG-LS header carries the cropped width.
 
 ## Module Interface
 
@@ -59,7 +59,7 @@ The input and output signals of **jls_encoder** are described in the following t
 |  rstn  |     reset      |    in     | 1bit  | When the clock rises, if rstn=0, the module is reset, and rstn=1 in normal use. |
 |  clk   |     clock      |    in     | 1bit  | All signals should be aligned on the rising edge of clk.     |
 | i_sof  | start of frame |    in     | 1bit  | When a new image needs to be input, keep i_sof=1 for at least 368 clock cycles. |
-|  i_w   |    width-1     |    in     | 14bit | For example, if the image width is 1920, i_w should be set to 14'd1919. Needs to remain valid when i_sof=1. The effective width is clamped to `MAX_WIDTH`. |
+|  i_w   |    width-1     |    in     | 14bit | For example, if the image width is 1920, i_w should be set to 14'd1919. Needs to remain valid when i_sof=1. Rows wider than `MAX_WIDTH` are cropped to `MAX_WIDTH`. |
 |  i_h   |    height-1    |    in     | 14bit | For example, if the image width is 1080, i_h should be set to 14'd1079. Needs to remain valid when i_sof=1. |
 |  i_e   |  input valid   |    in     | 1bit  | i_e=1 indicates a valid input pixel is on i_x                |
 |  i_x   |  input pixel   |    in     | 8bit  | The pixel value range is 8'd0 ~ 8'd255 .                     |
@@ -67,7 +67,7 @@ The input and output signals of **jls_encoder** are described in the following t
 | o_data |  output data   |    out    | 16bit | Little endian, odata[7:0] before, odata[15:8] after.         |
 | o_last |  output last   |    out    | 1bit  | o_last=1, indicate that this is the last data of the output stream of an image. |
 
-> Note：i_w cannot less than 14'd4 。
+> Note：i_w cannot be less than 14'd4 (image width 1–4 is unsupported: the encoder treats it as width 5 and only finishes the frame after 5×height pixels).
 
 ## Input pixels
 
@@ -183,7 +183,7 @@ At 63.8 MHz, compression throughput is **63.8 Mpixel/s**, supporting:
 - **1920×1080 @ 30 fps** (full HD)
 - **1280×720 @ 69 fps** (720p)
 
-The linebuffer depth follows `MAX_WIDTH`. With the older full-width configuration `MAX_WIDTH=16384`, the linebuffer is 16 KB and maps to 4 × RAMB36. Lowering `MAX_WIDTH` reduces the linebuffer depth and corresponding BRAM usage. The write-forward bypass is still separated so the RAM read port remains a clean `c_d_ram <= linebuffer[a_ii]`, avoiding fallback to distributed RAM. See [RTL/jls_encoder.v:1060-1075](./RTL/jls_encoder.v#L1060-L1075).
+The linebuffer depth follows `MAX_WIDTH`. With the older full-width configuration `MAX_WIDTH=16384`, the linebuffer is 16 KB and maps to 4 × RAMB36. Lowering `MAX_WIDTH` reduces the linebuffer depth and corresponding BRAM usage. The write-forward bypass is still separated so the RAM read port remains a clean `c_d_ram <= linebuffer[lb_raddr]`, avoiding fallback to distributed RAM. See [RTL/jls_encoder.v:1074-1094](./RTL/jls_encoder.v#L1074-L1094).
 
 Synthesis scripts are in the [SYNTH](./SYNTH) directory:
 
@@ -280,7 +280,7 @@ parameter integer MAX_WIDTH
 
 `NEAR` 决定 **NEAR** 值，取值为 3'd0 时，工作在无损模式；取值为 3'd1~3'd7 时，工作在有损模式。
 
-`MAX_WIDTH` 用来设置编译期最大图像宽度，也决定内部 linebuffer 的深度，默认值为 `1920`，足以覆盖 1920×1080 视频。如果运行时输入的 `i_w+1` 大于 `MAX_WIDTH`，编码器会把实际宽度钳位到 `MAX_WIDTH`。
+`MAX_WIDTH` 用来设置编译期最大图像宽度，也决定内部 linebuffer 的深度，默认值为 `1920`，足以覆盖 1920×1080 视频。如果运行时输入的 `i_w+1` 大于 `MAX_WIDTH`，每行仍需完整输入 `i_w+1` 个像素，但只编码每行的前 `MAX_WIDTH` 个像素：图像被裁剪为左侧 `MAX_WIDTH` 列，JPEG-LS 文件头中的宽度也是裁剪后的宽度。
 
 ## 模块信号
 
@@ -291,7 +291,7 @@ parameter integer MAX_WIDTH
 | rstn | 同步复位 | input | 1bit | 当时钟上升沿时若 rstn=0，模块复位，正常使用时 rstn=1 |
 | clk | 时钟 | input | 1bit | 时钟，所有信号都应该于 clk 上升沿对齐。 |
 | i_sof | 图像开始 | input | 1bit | 当需要输入一个新的图像时，保持至少368个时钟周期的 i_sof=1 |
-| i_w | 图像宽度-1 | input | 14bit | 例如图像宽度为 1920，则 i_w 应该置为 14‘d1919。需要在 i_sof=1 时保持有效。实际生效宽度会被钳位到 `MAX_WIDTH`。 |
+| i_w | 图像宽度-1 | input | 14bit | 例如图像宽度为 1920，则 i_w 应该置为 14‘d1919。需要在 i_sof=1 时保持有效。宽于 `MAX_WIDTH` 的行会被裁剪到 `MAX_WIDTH`。 |
 | i_h | 图像高度-1 | input | 14bit | 例如图像宽度为 1080，则 i_h 应该置为 14‘d1079。需要在 i_sof=1 时保持有效。 |
 | i_e | 输入像素有效 | input | 1bit | 当 i_e=1 时，一个像素需要被输入到 i_x 上。 |
 | i_x | 输入像素    | input | 8bit | 像素取值范围为 8'd0 ~ 8'd255 。 |
@@ -299,7 +299,7 @@ parameter integer MAX_WIDTH
 | o_data | 输出流数据 | output | 16bit | 小端序，o_data[7:0] 在先；o_data[15:8] 在后。 |
 | o_last | 输出流末尾 | output | 1bit | 当 o_e=1 时若 o_last=1 ，说明这是一张图像的输出流的最后一个数据。 |
 
-> 注：i_w 不能小于 14'd4 。
+> 注：i_w 不能小于 14'd4（不支持宽度 1~4：编码器会按宽度 5 处理，需输入 5×高度 个像素后该帧才会结束）。
 
 ## 输入图片
 
@@ -400,7 +400,7 @@ JPEGLSdec.exe test001.jls -otmp.pgm
 - **1920×1080 @ 30 fps**（全高清）
 - **1280×720 @ 69 fps**（720p）
 
-线缓冲深度跟随 `MAX_WIDTH` 变化。旧的全宽配置 `MAX_WIDTH=16384` 时，16 KB 线缓冲会映射到 4 × RAMB36。减小 `MAX_WIDTH` 会缩小线缓冲深度并降低相应 BRAM 占用。write-forward 旁路仍然从 RAM 读端口上分离，使读端口保持为干净的 `c_d_ram <= linebuffer[a_ii]`，避免 Vivado 回退为分布式 RAM。参见 [RTL/jls_encoder.v:1060-1075](./RTL/jls_encoder.v#L1060-L1075)。
+线缓冲深度跟随 `MAX_WIDTH` 变化。旧的全宽配置 `MAX_WIDTH=16384` 时，16 KB 线缓冲会映射到 4 × RAMB36。减小 `MAX_WIDTH` 会缩小线缓冲深度并降低相应 BRAM 占用。write-forward 旁路仍然从 RAM 读端口上分离，使读端口保持为干净的 `c_d_ram <= linebuffer[lb_raddr]`，避免 Vivado 回退为分布式 RAM。参见 [RTL/jls_encoder.v:1074-1094](./RTL/jls_encoder.v#L1074-L1094)。
 
 综合脚本位于 [SYNTH](./SYNTH) 目录：
 
