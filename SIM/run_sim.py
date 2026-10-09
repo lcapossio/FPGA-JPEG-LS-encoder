@@ -6,18 +6,26 @@
 JPEG-LS encoder simulation runner.
 
 Usage:
-    python run_sim.py                        # NEAR=0, default random bubbles, golden self-check
+    python run_sim.py                        # NEAR=0, default random bubbles, self-check
     python run_sim.py --near 0 1 2           # multiple NEAR values
     python run_sim.py --bubble 0 -1 1 3      # multiple BUBBLE_CONTROL values (full matrix)
-    python run_sim.py --regen-golden         # force regenerate golden files
-    python run_sim.py --no-check             # compress only, skip self-check
+    python run_sim.py --max-width 16384 512  # also run with a narrower MAX_WIDTH (row cropping)
+    python run_sim.py --no-check             # compress only, skip all checks
+    python run_sim.py --ctrl --near 0 3      # only the Arty AXI wrapper testbench
 
-Goldens depend on NEAR only (bubbles change timing, not encoded bytes), so a single
-golden set per NEAR is generated once and reused across all bubble values.
+Goldens are produced by CharLS (via the `imagecodecs` package), an independent
+JPEG-LS implementation, so the check does not depend on the RTL under test.
+The RTL stream must equal CharLS's output byte-for-byte from SOI through EOI
+(CharLS's leading SPIFF header is dropped), plus one 0x00 pad byte when needed
+to fill the encoder's final 16-bit output word. Each RTL output is also decoded
+with CharLS and compared against the source pixels (|error| <= NEAR).
+
+Requires: pip install imagecodecs numpy   (not needed with --no-check)
 """
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -25,9 +33,20 @@ from pathlib import Path
 SIM_DIR    = Path(__file__).parent.resolve()
 RTL_FILE   = SIM_DIR / ".." / "RTL" / "jls_encoder.v"
 TB_FILE    = SIM_DIR / "tb_jls_encoder.v"
+CTRL_TB    = SIM_DIR / "tb_axi_jls_ctrl.v"
+CTRL_RTL   = [SIM_DIR / ".." / "example" / "arty_a7" / "rtl" / f
+              for f in ("axi_jls_ctrl.v", "sync_fifo.v")]
+CTRL_IMAGE = 8  # images/test008.pgm (205x191) fits the ctrl TB's MAX_WIDTH=256
+IMG_DIR    = SIM_DIR / "images"
 SIM_OUT    = SIM_DIR / "sim.out"
 GOLDEN_DIR = SIM_DIR / "golden"
+OUT_DIR    = SIM_DIR / "out"
 CONFIG_VH  = SIM_DIR / "sim_config.vh"
+
+# Must match the testbench's supported-size filter
+MIN_W, MAX_W_LIMIT, MAX_H_LIMIT = 5, 16384, 16384
+
+IMAGECODECS_HINT = "pip install imagecodecs==2026.8.16 numpy"
 
 # Common Windows install locations for iverilog
 _IVERILOG_SEARCH = [
@@ -67,99 +86,209 @@ def _ensure_tools():
         _VVP      = _find_tool("vvp")
 
 
-def write_config(near, bubble, mode, golden_dir):
+def _import_codecs():
+    try:
+        import numpy as np
+        import imagecodecs
+    except ImportError:
+        print(f"ERROR: the self-check needs CharLS via imagecodecs: {IMAGECODECS_HINT}\n"
+              "       (or run with --no-check)", flush=True)
+        sys.exit(1)
+    if not imagecodecs.JPEGLS.available:
+        print("ERROR: this imagecodecs build has no JPEG-LS (CharLS) codec", flush=True)
+        sys.exit(1)
+    return np, imagecodecs
+
+
+# ---------------------------------------------------------------------------
+# Images
+# ---------------------------------------------------------------------------
+def list_images():
+    """Return {file_no: path} for images/testNNN.pgm, requiring 1..N contiguous."""
+    imgs = {}
+    for p in IMG_DIR.iterdir():
+        m = re.fullmatch(r"test(\d{3})\.pgm", p.name)
+        if m:
+            imgs[int(m.group(1))] = p
+    nos = sorted(imgs)
+    if not nos or nos != list(range(1, len(nos) + 1)):
+        raise RuntimeError(f"images must be test001.pgm..testNNN.pgm with no gaps, found {nos}")
+    return imgs
+
+
+def load_pgm(path):
+    """Return (w, h, pixel bytes) for a binary P5 PGM with maxval 255."""
+    data = path.read_bytes()
+    fields, i = [], 0
+    while len(fields) < 4:
+        while data[i:i+1].isspace():
+            i += 1
+        if data[i:i+1] == b"#":
+            while data[i:i+1] not in (b"\n", b""):
+                i += 1
+            continue
+        j = i
+        while j < len(data) and not data[j:j+1].isspace():
+            j += 1
+        fields.append(data[i:j])
+        i = j
+    i += 1  # single whitespace after maxval
+    if fields[0] != b"P5" or int(fields[3]) != 255:
+        raise ValueError(f"{path}: need a P5 PGM with maxval 255")
+    w, h = int(fields[1]), int(fields[2])
+    pix = data[i:i + w * h]
+    if len(pix) != w * h:
+        raise ValueError(f"{path}: truncated pixel data")
+    return w, h, pix
+
+
+def supported(w, h):
+    return MIN_W <= w <= MAX_W_LIMIT and 1 <= h <= MAX_H_LIMIT
+
+
+def expected_pixels(np, path, max_width):
+    """Source pixels as the encoder should code them (rows cropped to MAX_WIDTH)."""
+    w, h, pix = load_pgm(path)
+    img = np.frombuffer(pix, np.uint8).reshape(h, w)
+    return img[:, :min(w, max_width)]
+
+
+# ---------------------------------------------------------------------------
+# Goldens (CharLS) and decode check
+# ---------------------------------------------------------------------------
+SOI_SOF55 = bytes([0xFF, 0xD8, 0xFF, 0xF7])
+
+
+def charls_stream(np, imagecodecs, img, near):
+    """Expected encoder output for img: CharLS stream without SPIFF, padded to 16 bits."""
+    enc = bytes(imagecodecs.jpegls_encode(np.ascontiguousarray(img), level=near,
+                                          out=img.size * 2 + 4096))
+    start = enc.find(SOI_SOF55)
+    if start < 0:
+        raise RuntimeError("CharLS output has no SOI+SOF55 sequence")
+    stream = enc[start:]
+    if len(stream) % 2:
+        stream += b"\x00"
+    return stream
+
+
+def generate_golden(images, near, max_width, gdir):
+    np, imagecodecs = _import_codecs()
+    gdir.mkdir(parents=True, exist_ok=True)
+    for old in gdir.glob("*.jls"):
+        old.unlink()
+    n = 0
+    for no, path in sorted(images.items()):
+        w, h, _ = load_pgm(path)
+        if not supported(w, h):
+            continue
+        img = expected_pixels(np, path, max_width)
+        (gdir / f"test{no:03d}.jls").write_bytes(charls_stream(np, imagecodecs, img, near))
+        n += 1
+    print(f"  CharLS goldens: {n} files in {gdir}", flush=True)
+    return n
+
+
+def decode_check(images, near, max_width, odir):
+    """Decode every RTL output with CharLS and compare against the source pixels."""
+    np, imagecodecs = _import_codecs()
+    ok = True
+    for no, path in sorted(images.items()):
+        w, h, _ = load_pgm(path)
+        if not supported(w, h):
+            continue
+        jls = odir / f"test{no:03d}.jls"
+        if not jls.exists():
+            print(f"  [DECODE FAIL] {jls.name}: missing", flush=True)
+            ok = False
+            continue
+        ref = expected_pixels(np, path, max_width)
+        try:
+            dec = imagecodecs.jpegls_decode(jls.read_bytes())
+        except Exception as e:  # noqa: BLE001 - report any decoder error as a failure
+            print(f"  [DECODE FAIL] {jls.name}: {e}", flush=True)
+            ok = False
+            continue
+        if dec.shape != ref.shape:
+            print(f"  [DECODE FAIL] {jls.name}: shape {dec.shape} != {ref.shape}", flush=True)
+            ok = False
+            continue
+        err = int(np.abs(dec.astype(np.int16) - ref.astype(np.int16)).max())
+        if err > near:
+            print(f"  [DECODE FAIL] {jls.name}: max |error| {err} > NEAR {near}", flush=True)
+            ok = False
+    if ok:
+        print("  CharLS decode check: all outputs within NEAR", flush=True)
+    return ok
+
+
+# ---------------------------------------------------------------------------
+# Simulation
+# ---------------------------------------------------------------------------
+def write_config(near, bubble, max_width, n_images, odir, gdir, check):
     """Write sim_config.vh so the testbench picks up the right settings."""
     lines = [
-        "// Auto-generated by run_sim.py — do not edit by hand",
+        "// Auto-generated by run_sim.py - do not edit by hand",
         f"`define NEAR           {near}",
+        f"`define MAX_WIDTH      {max_width}",
         f"`define BUBBLE_CONTROL ({bubble})",
-        f'`define GOLDEN_JLS_DIR "{golden_dir.as_posix()}"',
+        "`define FILE_NO_FIRST  1",
+        f"`define FILE_NO_FINAL  {n_images}",
+        f'`define OUTPUT_JLS_DIR "{odir.as_posix()}"',
+        f'`define GOLDEN_JLS_DIR "{gdir.as_posix()}"',
     ]
-    if mode == "generate":
-        lines.append("`define GENERATE_GOLDEN")
-    elif mode == "check":
+    if check:
         lines.append("`define SELF_CHECK")
     CONFIG_VH.write_text("\n".join(lines) + "\n")
 
 
-def run_iverilog():
-    """Compile TB + RTL. Returns True on success."""
-    _ensure_tools()
-    cmd = [
-        str(_IVERILOG), "-g2001",
-        "-o", str(SIM_OUT),
-        "-D", "HAVE_SIM_CONFIG",
-        str(TB_FILE),
-        str(RTL_FILE),
-    ]
-    print(f"\n[COMPILE] {' '.join(cmd)}", flush=True)
+def run_cmd(cmd, tag):
+    print(f"\n[{tag}] {' '.join(str(c) for c in cmd)}", flush=True)
     print("-" * 60, flush=True)
-    rc = subprocess.run(cmd, cwd=SIM_DIR).returncode
+    rc = subprocess.run([str(c) for c in cmd], cwd=SIM_DIR).returncode
     print("-" * 60, flush=True)
     return rc == 0
 
 
-def run_vvp():
-    """Run the compiled simulation. Returns True on success (exit 0)."""
+def run_case(images, near, bubble, max_width, check):
     _ensure_tools()
-    cmd = [str(_VVP), "-n", str(SIM_OUT)]
-    print(f"\n[SIM] {' '.join(cmd)}", flush=True)
-    print("-" * 60, flush=True)
-    rc = subprocess.run(cmd, cwd=SIM_DIR).returncode
-    print("-" * 60, flush=True)
-    return rc == 0
+    gdir = GOLDEN_DIR / f"near{near}_w{max_width}"
+    odir = OUT_DIR / f"near{near}_w{max_width}_b{bubble}"
+    odir.mkdir(parents=True, exist_ok=True)
+    for old in odir.glob("*.jls"):
+        old.unlink()
 
-
-def golden_dir_for(near):
-    return GOLDEN_DIR / f"near{near}"
-
-
-def golden_exists(near):
-    d = golden_dir_for(near)
-    return d.is_dir() and any(d.glob("*.jls"))
-
-
-def generate_golden(near, bubble):
-    """Generate golden .jls reference files for the given NEAR value."""
-    gdir = golden_dir_for(near)
-    gdir.mkdir(parents=True, exist_ok=True)
-
-    print(f"\n>>> Generating golden files  NEAR={near}  ->  {gdir}", flush=True)
-    write_config(near, bubble, mode="generate", golden_dir=gdir)
-
-    if not run_iverilog():
+    write_config(near, bubble, max_width, len(images), odir, gdir, check)
+    if not run_cmd([_IVERILOG, "-g2001", "-o", SIM_OUT, "-D", "HAVE_SIM_CONFIG",
+                    TB_FILE, RTL_FILE], "COMPILE"):
         print("ERROR: compilation failed", flush=True)
         return False
-    if not run_vvp():
-        print("ERROR: simulation failed during golden generation", flush=True)
+    if not run_cmd([_VVP, "-n", SIM_OUT], "SIM"):
         return False
+    if check:
+        return decode_check(images, near, max_width, odir)
+    return True
 
-    files = list(gdir.glob("*.jls"))
-    print(f"  Generated {len(files)} golden .jls files in {gdir}", flush=True)
-    return len(files) > 0
 
-
-def self_check(near, bubble):
-    """Run self-check comparing output against golden files."""
-    gdir = golden_dir_for(near)
-    print(f"\n>>> Running self-check  NEAR={near}  against  {gdir}", flush=True)
-    write_config(near, bubble, mode="check", golden_dir=gdir)
-
-    if not run_iverilog():
+def run_ctrl(images, near):
+    """Arty AXI wrapper: dimension checks, write back-pressure, STATUS, output vs CharLS."""
+    _ensure_tools()
+    np, imagecodecs = _import_codecs()
+    img_path = images[CTRL_IMAGE]
+    gold = GOLDEN_DIR / f"ctrl_near{near}.jls"
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    gold.write_bytes(charls_stream(np, imagecodecs, expected_pixels(np, img_path, MAX_W_LIMIT), near))
+    CONFIG_VH.write_text("\n".join([
+        "// Auto-generated by run_sim.py - do not edit by hand",
+        f"`define NEAR        {near}",
+        f'`define CTRL_IMG    "{img_path.as_posix()}"',
+        f'`define CTRL_GOLDEN "{gold.as_posix()}"',
+    ]) + "\n")
+    if not run_cmd([_IVERILOG, "-g2001", "-o", SIM_OUT, "-D", "HAVE_SIM_CONFIG",
+                    CTRL_TB, *CTRL_RTL, RTL_FILE], "COMPILE"):
         print("ERROR: compilation failed", flush=True)
         return False
-    return run_vvp()
-
-
-def compress_only(near, bubble):
-    """Compress images with no self-check."""
-    print(f"\n>>> Compressing  NEAR={near}  (no self-check)", flush=True)
-    write_config(near, bubble, mode="compress", golden_dir=GOLDEN_DIR)
-
-    if not run_iverilog():
-        print("ERROR: compilation failed", flush=True)
-        return False
-    return run_vvp()
+    return run_cmd([_VVP, "-n", SIM_OUT], "SIM")
 
 
 def main():
@@ -171,54 +300,58 @@ def main():
     parser.add_argument(
         "--bubble", type=int, nargs="+", default=[-1], metavar="B",
         help="BUBBLE_CONTROL value(s) (default: -1 = random bubbles). "
-             "Multiple values run the full (near × bubble) matrix.",
+             "Multiple values run the full (near x bubble) matrix.",
     )
     parser.add_argument(
-        "--regen-golden", action="store_true",
-        help="Force regeneration of golden reference files before checking",
+        "--max-width", type=int, nargs="+", default=[16384], metavar="W",
+        help="jls_encoder MAX_WIDTH value(s) (default: 16384). Images wider "
+             "than W are expected to be cropped to their first W columns.",
     )
     parser.add_argument(
         "--no-check", action="store_true",
-        help="Compress only, no self-check",
+        help="Compress only, no golden or decode check",
+    )
+    parser.add_argument(
+        "--ctrl", action="store_true",
+        help="Run only the Arty AXI wrapper testbench (tb_axi_jls_ctrl.v) for each NEAR",
     )
     args = parser.parse_args()
 
     for n in args.near:
         if not 0 <= n <= 7:
-            print(f"ERROR: NEAR={n} is out of range [0, 7]")
-            sys.exit(1)
+            parser.error(f"NEAR={n} is out of range [0, 7]")
+    for mw in args.max_width:
+        if not MIN_W <= mw <= MAX_W_LIMIT:
+            parser.error(f"MAX_WIDTH={mw} is out of range [{MIN_W}, {MAX_W_LIMIT}]")
+
+    images = list_images()
+    print(f"[INFO] {len(images)} images in {IMG_DIR}", flush=True)
 
     overall_pass = True
-    results = []  # list of (near, bubble, status)
+    results = []  # (near, max_width, bubble, status)
 
-    # Goldens depend only on NEAR, not on bubble timing. Generate once per NEAR using
-    # the first bubble value, then reuse across all bubble values in the matrix.
-    golden_bubble = args.bubble[0]
+    if args.ctrl:
+        for near in args.near:
+            print(f"\n--- AXI ctrl testbench  NEAR={near} ---", flush=True)
+            ok = run_ctrl(images, near)
+            results.append((near, "ctrl", "-", "PASS" if ok else "FAIL"))
+            overall_pass &= ok
 
-    for near in args.near:
-        print(f"\n{'='*60}", flush=True)
-        print(f"  NEAR = {near}", flush=True)
-        print(f"{'='*60}", flush=True)
+    for max_width in ([] if args.ctrl else args.max_width):
+        for near in args.near:
+            print(f"\n{'='*60}", flush=True)
+            print(f"  NEAR = {near}   MAX_WIDTH = {max_width}", flush=True)
+            print(f"{'='*60}", flush=True)
 
-        if not args.no_check:
-            if args.regen_golden or not golden_exists(near):
-                ok = generate_golden(near, golden_bubble)
-                if not ok:
-                    print(f"ERROR: golden generation failed for NEAR={near}", flush=True)
-                    overall_pass = False
-                    for b in args.bubble:
-                        results.append((near, b, "SKIP (no golden)"))
-                    continue
+            # Goldens depend on NEAR and MAX_WIDTH only, not on bubble timing.
+            if not args.no_check:
+                generate_golden(images, near, max_width, GOLDEN_DIR / f"near{near}_w{max_width}")
 
-        for bubble in args.bubble:
-            print(f"\n--- NEAR={near}  BUBBLE={bubble} ---", flush=True)
-            if args.no_check:
-                ok = compress_only(near, bubble)
-            else:
-                ok = self_check(near, bubble)
-            results.append((near, bubble, "PASS" if ok else "FAIL"))
-            if not ok:
-                overall_pass = False
+            for bubble in args.bubble:
+                print(f"\n--- NEAR={near}  MAX_WIDTH={max_width}  BUBBLE={bubble} ---", flush=True)
+                ok = run_case(images, near, bubble, max_width, check=not args.no_check)
+                results.append((near, max_width, bubble, "PASS" if ok else "FAIL"))
+                overall_pass &= ok
 
     # Cleanup
     if SIM_OUT.exists():
@@ -229,13 +362,10 @@ def main():
     print(f"\n{'='*60}", flush=True)
     print("  REGRESSION MATRIX SUMMARY", flush=True)
     print(f"{'='*60}", flush=True)
-    for near, bubble, status in results:
-        print(f"  NEAR={near}  BUBBLE={bubble:>3}  ->  {status}", flush=True)
+    for near, max_width, bubble, status in results:
+        print(f"  NEAR={near}  MAX_WIDTH={max_width!s:>5}  BUBBLE={bubble!s:>3}  ->  {status}", flush=True)
     print(f"{'='*60}", flush=True)
-    if overall_pass:
-        print("  RESULT: ALL PASSED", flush=True)
-    else:
-        print("  RESULT: FAILED", flush=True)
+    print(f"  RESULT: {'ALL PASSED' if overall_pass else 'FAILED'}", flush=True)
     print(f"{'='*60}\n", flush=True)
 
     sys.exit(0 if overall_pass else 1)

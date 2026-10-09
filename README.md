@@ -107,42 +107,53 @@ During the input, **jls_encoder** will also output a compressed **JPEG-LS stream
 
 Simulation related files are in the [SIM](./SIM) directory, including:
 
-* [tb_jls_encoder.v](./SIM/tb_jls_encoder.v) — self-checking testbench for jls_encoder. Compresses all `.pgm` images and compares the output byte-for-byte against golden reference files. Reports `[PASS]` / `[FAIL]` per image and exits with a non-zero code on any mismatch.
+* [tb_jls_encoder.v](./SIM/tb_jls_encoder.v) — self-checking testbench for jls_encoder. Compresses all `.pgm` images and compares the output byte-for-byte against golden reference files. Reports `[PASS]` / `[FAIL]` per image and exits with a non-zero code on any mismatch, missing golden, length difference, unreadable file, or frame that does not complete.
+* [tb_axi_jls_ctrl.v](./SIM/tb_axi_jls_ctrl.v) — self-checking testbench for the Arty demo's AXI wrapper: size validation, write back-pressure with long bursts against a slow reader, the STATUS register, and the drained stream against the golden.
 * [run_sim.py](./SIM/run_sim.py) — one-command Python runner that compiles, runs, and checks all tests automatically.
-* [golden/](./SIM/golden) — locally generated golden `.jls` reference files used by the self-check flow. These files are not intended to be tracked in git; generate them with `--regen-golden` when needed.
+* [gen_test_images.py](./SIM/gen_test_images.py) — regenerates the synthetic test images (currently `test023.pgm`, a worst case for the context accumulator).
 * The [images](./SIM/images) folder contains several image files in `.pgm` format. The `.pgm` format stores an uncompressed 8-bit grayscale image.
+
+The golden `.jls` files are produced on every run by [CharLS](https://github.com/team-charls/charls), an independent JPEG-LS implementation, through the `imagecodecs` Python package. The encoder output must equal CharLS's stream byte-for-byte from SOI to EOI (CharLS's SPIFF header is dropped, and one `0x00` pad byte fills the final 16-bit output word when needed). Every output is also decoded with CharLS and compared against the source pixels (|error| ≤ NEAR). Goldens go to `SIM/golden/` and encoder outputs to `SIM/out/`; neither is tracked in git.
 
 > The `.pgm` file format is very simple: a short ASCII header with width/height, followed by all raw pixels. `jls_encoder` only needs raw pixels as input and has no dependency on the `.pgm` format itself.
 
-Before using iverilog for simulation, install iverilog: [iverilog_usage](https://github.com/WangXuan95/WangXuan95/blob/main/iverilog_usage/iverilog_usage.md)
+Before using iverilog for simulation, install iverilog: [iverilog_usage](https://github.com/WangXuan95/WangXuan95/blob/main/iverilog_usage/iverilog_usage.md), then the reference codec:
 
-Then run all 22 self-checking tests with a single command:
+```bash
+pip install imagecodecs==2026.8.16 numpy
+```
+
+Then run all 23 self-checking tests with a single command:
 
 ```bash
 python SIM/run_sim.py
 ```
 
-The runner compiles the testbench, runs each image through `jls_encoder`, and compares every output byte against the locally generated golden file. Example output:
+The runner generates the CharLS goldens, compiles the testbench, runs each image through `jls_encoder`, compares every output byte against the golden, and decodes every output. Example output:
 
 ```
-[PASS] test001 (near=0)
-[PASS] test002 (near=0)
-...
-22/22 PASS
+  [PASS] .../SIM/out/near0_w16384_b-1/test001.jls  (34 bytes)
+  ...
+*** ALL CHECKS PASSED ***
+  CharLS decode check: all outputs within NEAR
 ```
 
 You can also use the following options:
 
 - `--near N [N ...]` — one or more NEAR values (default 0, range 0–7)
 - `--bubble N [N ...]` — one or more BUBBLE_CONTROL values (default -1 = random 0..1; 0 = no bubbles, max throughput; N>0 = constant N bubbles between pixels)
-- `--regen-golden` — regenerate golden reference files
-- `--no-check` — run without comparing to golden files
+- `--max-width W [W ...]` — one or more `MAX_WIDTH` values for the encoder (default 16384); wider images are expected to be cropped to W columns
+- `--ctrl` — run only the Arty AXI wrapper testbench, once per NEAR
+- `--no-check` — compress only, no golden or decode check (does not need `imagecodecs`)
 
-Passing multiple values to `--near` and/or `--bubble` runs the full (near × bubble) regression matrix in a single invocation. Golden files depend only on NEAR (bubbles change timing, not encoded bytes), so one golden set per NEAR is generated once and reused across bubble values. Example:
+Passing multiple values runs the full (MAX_WIDTH × NEAR × bubble) regression matrix in a single invocation. Goldens depend only on NEAR and MAX_WIDTH (bubbles change timing, not encoded bytes). Example:
 
 ```bash
-# Full regression: 4 NEAR values × 4 bubble settings = 16 runs, one invocation
-python SIM/run_sim.py --near 0 1 3 7 --bubble 0 -1 1 3
+# Full regression: 8 NEAR values × 4 bubble settings = 32 runs, one invocation
+python SIM/run_sim.py --near 0 1 2 3 4 5 6 7 --bubble 0 -1 1 3
+# Row cropping with a narrow encoder, and the Arty AXI wrapper
+python SIM/run_sim.py --near 0 3 --max-width 512 5
+python SIM/run_sim.py --ctrl --near 0 3
 ```
 
 The testbench emits a minimal `[alive] t=<time>` heartbeat every 2M clocks (override via `-D HEARTBEAT_CYCLES=...`) so long runs can be monitored without polluting simulation output.
@@ -339,12 +350,21 @@ i_sof=1 和 i_e=1 之间；以及 i_e=1 各自之间可以插入任意个空闲�
 
 仿真相关文件都在 SIM 目录里，包括：
 
-* [tb_jls_encoder.v](./SIM/tb_jls_encoder.v) — 自校验 testbench，对每张图像输出的每个字节与黄金参考文件逐一比较，输出 `[PASS]`/`[FAIL]`，任意失败时以非零状态退出。
+* [tb_jls_encoder.v](./SIM/tb_jls_encoder.v) — 自校验 testbench，对每张图像输出的每个字节与黄金参考文件逐一比较，输出 `[PASS]`/`[FAIL]`；出现不匹配、黄金文件缺失、长度不同、文件无法读写或某帧未完成时，以非零状态退出。
+* [tb_axi_jls_ctrl.v](./SIM/tb_axi_jls_ctrl.v) — Arty 示例 AXI 封装的自校验 testbench：尺寸校验、长突发写入配合慢速读出时的写反压、STATUS 寄存器，以及读出码流与黄金文件的比较。
 * [run_sim.py](./SIM/run_sim.py) — 一键 Python 运行脚本，自动完成编译、仿真、校验全流程。
-* [golden/](./SIM/golden) — 自校验流程使用的本地生成黄金 `.jls` 参考文件。这些文件不建议纳入 git，需要时用 `--regen-golden` 生成。
+* [gen_test_images.py](./SIM/gen_test_images.py) — 重新生成合成测试图像（目前为 `test023.pgm`，上下文累加器的最坏情况）。
 * [images](./SIM/images) 文件夹包含几张 `.pgm` 格式的图像文件。
 
-安装 iverilog 后，一条命令即可运行全部 22 个自校验测试：
+黄金 `.jls` 文件在每次运行时由独立的 JPEG-LS 实现 [CharLS](https://github.com/team-charls/charls)（通过 Python 包 `imagecodecs`）生成。编码器输出必须与 CharLS 的码流从 SOI 到 EOI 逐字节一致（去掉 CharLS 的 SPIFF 头；必要时末尾补一个 `0x00` 填满最后一个 16 位输出字）。每个输出还会用 CharLS 解码，并与源像素比较（|误差| ≤ NEAR）。黄金文件位于 `SIM/golden/`，编码输出位于 `SIM/out/`，均不纳入 git。
+
+安装 iverilog 和参考编解码器：
+
+```bash
+pip install imagecodecs==2026.8.16 numpy
+```
+
+然后一条命令即可运行全部 23 个自校验测试：
 
 ```bash
 python SIM/run_sim.py
@@ -354,14 +374,18 @@ python SIM/run_sim.py
 
 - `--near N [N ...]` — 一个或多个 NEAR 值（默认 0，范围 0–7）
 - `--bubble N [N ...]` — 一个或多个 BUBBLE_CONTROL 值（默认 -1 = 随机 0..1；0 = 无气泡最大吞吐；N>0 = 相邻像素间固定插入 N 个气泡）
-- `--regen-golden` — 重新生成黄金参考文件
-- `--no-check` — 仅运行，不与黄金文件比较
+- `--max-width W [W ...]` — 编码器的一个或多个 `MAX_WIDTH` 值（默认 16384）；更宽的图像应被裁剪为 W 列
+- `--ctrl` — 只运行 Arty AXI 封装 testbench，每个 NEAR 一次
+- `--no-check` — 仅压缩，不做黄金比较和解码校验（不需要 `imagecodecs`）
 
-同时给 `--near` 和 `--bubble` 传多个值时，一次调用即可运行完整的 (near × bubble) 回归矩阵。黄金文件只依赖 NEAR（气泡只影响时序，不影响编码字节），因此每个 NEAR 的黄金文件只需生成一次，并在不同气泡设置之间复用。例：
+传入多个值时，一次调用即可运行完整的 (MAX_WIDTH × NEAR × 气泡) 回归矩阵。黄金文件只依赖 NEAR 和 MAX_WIDTH（气泡只影响时序，不影响编码字节）。例：
 
 ```bash
-# 完整回归：4 个 NEAR 值 × 4 种气泡设置 = 16 次运行，一条命令
-python SIM/run_sim.py --near 0 1 3 7 --bubble 0 -1 1 3
+# 完整回归：8 个 NEAR 值 × 4 种气泡设置 = 32 次运行，一条命令
+python SIM/run_sim.py --near 0 1 2 3 4 5 6 7 --bubble 0 -1 1 3
+# 窄编码器的行裁剪，以及 Arty AXI 封装
+python SIM/run_sim.py --near 0 3 --max-width 512 5
+python SIM/run_sim.py --ctrl --near 0 3
 ```
 
 Testbench 每 2M 时钟发一条极简 `[alive] t=<time>` 心跳（可通过 `-D HEARTBEAT_CYCLES=...` 覆盖），以便长时间运行中确认仿真存活而不污染输出。

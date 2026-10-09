@@ -12,19 +12,52 @@ on:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        near: [0, 1, 2, 7]
+        near: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Icarus Verilog
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Icarus Verilog and CharLS (imagecodecs)
         run: |
           sudo apt-get update
           sudo apt-get install -y iverilog
+          python -m pip install imagecodecs==2026.8.16 numpy
 
       - name: Regression (NEAR=${{ matrix.near }}, bubble matrix)
         working-directory: SIM
-        run: python3 run_sim.py --near ${{ matrix.near }} --bubble 0 -1 1 3
+        run: python run_sim.py --near ${{ matrix.near }} --bubble 0 -1 1 3
+
+  crop-and-ctrl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        near: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Icarus Verilog and CharLS (imagecodecs)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog
+          python -m pip install imagecodecs==2026.8.16 numpy
+
+      - name: Row cropping (NEAR=${{ matrix.near }}, MAX_WIDTH 512 and 5)
+        working-directory: SIM
+        run: python run_sim.py --near ${{ matrix.near }} --bubble -1 --max-width 512 5
+
+      - name: Arty AXI wrapper (NEAR=${{ matrix.near }})
+        working-directory: SIM
+        run: python run_sim.py --near ${{ matrix.near }} --ctrl
