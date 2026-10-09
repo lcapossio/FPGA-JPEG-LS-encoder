@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Author: WangXuan95
+// Contributor: Leonardo Capossio - bard0 design - hello@bard0.com
 
 //--------------------------------------------------------------------------------------------------------
 // Module  : jls_encoder

@@ -233,6 +233,12 @@ python example/arty_a7/run_demo.py --build --image SIM/images/test008.pgm
 `FCAPZ_ROOT` remains available if you want to point the build at a different
 checkout during development.
 
+# License
+
+This project is licensed under the GNU General Public License v3.0 ([LICENSE](./LICENSE)). Files written for this fork carry `SPDX-License-Identifier: GPL-3.0-only`.
+
+It is a fork of [WangXuan95/FPGA-JPEG-LS-encoder](https://github.com/WangXuan95/FPGA-JPEG-LS-encoder), which is also GPLv3. [RTL/jls_encoder.v](./RTL/jls_encoder.v) and [SIM/tb_jls_encoder.v](./SIM/tb_jls_encoder.v) are derived from WangXuan95's originals, and [SYNTH/jls_encoder_orig.v](./SYNTH/jls_encoder_orig.v) is a copy of the upstream encoder kept as a synthesis baseline. WangXuan95 remains the author of these files and they stay under GPLv3; their original headers are unchanged, with only a GPLv3 SPDX line and an `Author: WangXuan95` line added on top, plus a contributor line on the files this fork changed (`jls_encoder.v`, `tb_jls_encoder.v`). Test images `test001`–`test022` and `SIM/JPEGLSdec.exe` also come from upstream; the decoder is built from UBC's public-domain JPEG-LS reference code (see below). The [fcapz](./fcapz) submodule is a separate project under its own license.
+
 # Reference
 
 - ITU-T T.87 : Information technology – Lossless and near-lossless compression of continuous-tone still images – Baseline : https://www.itu.int/rec/T-REC-T.87/en
@@ -435,6 +441,12 @@ vivado -mode batch -source SYNTH/run_synth.tcl
 流水线拆分为 12 级（含 e1→e2 两周期级，用于打断经过上下文量化 RAM 的关键路径），相比原始单周期设计（~49 MHz）Fmax 提升约 30%（post-route 实测 `xc7a100tcsg324-1`、16 ns 约束下 ~63.8 MHz）。
 
 　
+
+# 许可证
+
+本项目采用 GNU 通用公共许可证 v3.0（[LICENSE](./LICENSE)）。本 fork 新编写的文件带有 `SPDX-License-Identifier: GPL-3.0-only`。
+
+本项目 fork 自同为 GPLv3 的 [WangXuan95/FPGA-JPEG-LS-encoder](https://github.com/WangXuan95/FPGA-JPEG-LS-encoder)。[RTL/jls_encoder.v](./RTL/jls_encoder.v) 和 [SIM/tb_jls_encoder.v](./SIM/tb_jls_encoder.v) 派生自 WangXuan95 的原始文件，[SYNTH/jls_encoder_orig.v](./SYNTH/jls_encoder_orig.v) 是上游编码器的副本，用作综合基线。这些文件的作者仍为 WangXuan95，并继续采用 GPLv3；其原始文件头保持不变，仅在顶部添加了 GPLv3 SPDX 标识和 `Author: WangXuan95` 行；本 fork 修改过的文件（`jls_encoder.v`、`tb_jls_encoder.v`）另加贡献者行。测试图像 `test001`–`test022` 和 `SIM/JPEGLSdec.exe` 同样来自上游，该解码器编译自 UBC 的公有领域 JPEG-LS 参考代码。[fcapz](./fcapz) 子模块是独立项目，使用其自身的许可证。
 
 # 相关链接
 

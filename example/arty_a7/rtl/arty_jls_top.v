@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-only
 // Copyright (c) 2026 Leonardo Capossio - bard0 design - hello@bard0.com
 
 // Arty A7-100T top for the JPEG-LS encoder demo.
