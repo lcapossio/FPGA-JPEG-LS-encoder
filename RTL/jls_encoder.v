@@ -298,14 +298,18 @@ endfunction
 //---------------------------------------------------------------------------------------------------------------------------
 // function: A update
 //---------------------------------------------------------------------------------------------------------------------------
+// The sum is taken at 14 bits: on the RESET update A+inc can reach
+// 4+64*128 = 8196, which would wrap in 13 bits before the halving.
 function  [12:0] A_update;
     input        reset;
     input [12:0] A;
     input [ 9:0] inc;
+    reg   [13:0] sum;
 begin
-    A_update = A + {3'd0, inc};
+    sum = {1'b0, A} + {4'd0, inc};
     if(reset)
-        A_update = A_update >>> 1;
+        sum = sum >> 1;
+    A_update = sum[12:0];
 end
 endfunction
 
