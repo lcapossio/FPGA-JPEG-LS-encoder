@@ -96,6 +96,7 @@ module arty_jls_top (
     // -----------------------------------------------------------------------
     axi_jls_ctrl #(
         .NEAR            (0),
+        .MAX_WIDTH       (1920),
         .IN_FIFO_DEPTH   (1024),
         .OUT_FIFO_DEPTH  (256),
         .SOF_HOLD_CYCLES (512)

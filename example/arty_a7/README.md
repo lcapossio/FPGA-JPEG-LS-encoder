@@ -29,14 +29,16 @@ Byte addresses (32-bit regs, little-endian):
 | Addr      | Reg       | R/W | Bits                                                                   |
 | --------- | --------- | --- | ---------------------------------------------------------------------- |
 | 0x0000    | CTRL      | W   | [0]=soft_reset  [1]=sof_strobe  [2]=done_clear                         |
-| 0x0004    | WIDTH     | R/W | [13:0] image width                                                     |
-| 0x0008    | HEIGHT    | R/W | [13:0] image height                                                    |
-| 0x000C    | STATUS    | R   | [0]=busy  [1]=done  [2]=in_full  [3]=out_empty  [18:8]=in_count  [27:16]=out_count |
+| 0x0004    | WIDTH     | R/W | [14:0] image width (5..MAX_WIDTH)                                      |
+| 0x0008    | HEIGHT    | R/W | [14:0] image height (1..16384)                                         |
+| 0x000C    | STATUS    | R   | [0]=busy  [1]=done  [2]=in_full  [3]=out_empty  [4]=out_overflow  [5]=dim_error  [19:8]=in_count  [31:20]=out_count |
 | 0x0010    | NEAR      | R   | [2:0] compile-time NEAR                                                |
+| 0x0014    | MAX_WIDTH | R   | [15:0] compile-time encoder MAX_WIDTH (1920 in this build)             |
+| 0x0018    | FIFO_DEPTH| R   | [15:0]=input FIFO depth  [31:16]=output FIFO depth                     |
 | 0x1000+   | PIX_IN    | W   | write wdata[7:0] with wstrb=0x1; pushes 1 pixel per AXI beat           |
 | 0x2000+   | OUT_DATA  | R   | read pops one word: [15:0]=data, [16]=o_last                           |
 
-The input FIFO back-pressures via `s_wready` when full. The encoder's i_e is gated when the output FIFO approaches full (JTAG readback is much slower than the encoder, so without this the out FIFO would overflow).
+The input FIFO back-pressures via `s_wready` when full; every accepted pixel beat is stored. A `sof_strobe` with WIDTH/HEIGHT outside the ranges above does not start a frame and sets the sticky `dim_error` bit (cleared by `done_clear` or `soft_reset`); `run_demo.py` reads `MAX_WIDTH` and rejects larger images up front. The encoder's i_e is gated when the output FIFO approaches full (JTAG readback is much slower than the encoder, so without this the out FIFO would overflow).
 
 NEAR is a synthesis parameter — rebuild the bitstream to change it. The default is **0 (lossless)**, which enables the host-side roundtrip verification.
 
@@ -97,6 +99,7 @@ JTAG is the bottleneck. Typical observed speeds with the onboard FT2232H at 30 M
 
 - Single NEAR value per bitstream (compile-time parameter)
 - One pixel per AXI beat (wstrb=0x1); 4-pixel packing would quadruple ingress bandwidth but complicates the slave FSM
+- Images wider than `MAX_WIDTH` (1920 by default, set in `arty_jls_top.v`) are rejected; raise the parameter and rebuild for wider images
 - No CRC / protocol framing — the host and FPGA agree on (W, H) via register writes; mismatched values will produce garbage output
 
 ## Files

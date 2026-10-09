@@ -4,14 +4,18 @@
 // AXI4 slave + jls_encoder wrapper for the Arty demo.
 //
 // Register map (byte-addressed, 32-bit regs, little-endian):
-//   0x0000 CTRL    W/O pulse: [0]=soft_reset  [1]=sof_strobe  [2]=done_clear
-//   0x0004 WIDTH   R/W [13:0] image width
-//   0x0008 HEIGHT  R/W [13:0] image height
-//   0x000C STATUS  R/O  [0]=busy       [1]=done_sticky
-//                       [2]=in_full    [3]=out_empty
-//                       [18:8]=in_count  [27:16]=out_count
-//                       [28]=out_overflow_sticky
-//   0x0010 NEAR    R/O  [2:0] compile-time NEAR value
+//   0x0000 CTRL      W/O pulse: [0]=soft_reset  [1]=sof_strobe  [2]=done_clear
+//   0x0004 WIDTH     R/W [14:0] image width  (5..MAX_WIDTH)
+//   0x0008 HEIGHT    R/W [14:0] image height (1..16384)
+//   0x000C STATUS    R/O  [0]=busy          [1]=done_sticky
+//                         [2]=in_full       [3]=out_empty
+//                         [4]=out_overflow_sticky
+//                         [5]=dim_error_sticky (sof_strobe with WIDTH/HEIGHT
+//                             out of range; the frame was not started)
+//                         [19:8]=in_count   [31:20]=out_count
+//   0x0010 NEAR      R/O  [2:0] compile-time NEAR value
+//   0x0014 MAX_WIDTH R/O  [15:0] compile-time encoder MAX_WIDTH
+//   0x0018 FIFO_DEPTH R/O [15:0]=IN_FIFO_DEPTH  [31:16]=OUT_FIFO_DEPTH
 //
 //   0x1000..0x1FFC PIX_IN window (W/O): push 1 pixel per AXI beat,
 //                  from wdata[7:0] (wstrb[0] must be set).
@@ -27,8 +31,9 @@
 
 module axi_jls_ctrl #(
     parameter integer NEAR            = 0,
-    parameter integer IN_FIFO_DEPTH   = 1024,
-    parameter integer OUT_FIFO_DEPTH  = 256,
+    parameter integer MAX_WIDTH       = 1920,
+    parameter integer IN_FIFO_DEPTH   = 1024,  // power of 2, <= 2048 (12-bit STATUS field)
+    parameter integer OUT_FIFO_DEPTH  = 256,   // power of 2, 128..2048
     parameter integer SOF_HOLD_CYCLES = 512
 ) (
     input  wire        clk,
@@ -75,18 +80,35 @@ module axi_jls_ctrl #(
 
     wire _unused = &{1'b0, s_awsize, s_awburst, s_arsize, s_arburst, 1'b0};
 
+    // STATUS packs in_count/out_count into 12-bit fields, and the encoder
+    // drain reserve below is 64 words. Out-of-range depths fail elaboration
+    // on this deliberately undefined module.
+    generate
+        if (IN_FIFO_DEPTH > 2048 || OUT_FIFO_DEPTH > 2048 || OUT_FIFO_DEPTH < 128 ||
+            MAX_WIDTH < 5 || MAX_WIDTH > 16384) begin : g_bad_param
+            axi_jls_ctrl_invalid_parameter u_invalid_parameter ();
+        end
+    endgenerate
+
     // -----------------------------------------------------------------------
     // Control registers
     // -----------------------------------------------------------------------
-    reg [13:0] r_width, r_height;
+    reg [14:0] r_width, r_height;
     reg        soft_reset;
     reg        sof_strobe;
     reg        done_clear;
     reg        done_sticky;
     reg        busy;
     reg        out_overflow_sticky;
+    reg        dim_error_sticky;
 
     wire rst_any = rst | soft_reset;
+
+    // The core cannot encode widths below 5, and crops rows wider than
+    // MAX_WIDTH; the demo verifies a lossless roundtrip of the whole image,
+    // so both cases are rejected instead of started.
+    wire dims_ok = (r_width  >= 15'd5) && (r_width  <= MAX_WIDTH) &&
+                   (r_height >= 15'd1) && (r_height <= 15'd16384);
 
     // -----------------------------------------------------------------------
     // FIFOs
@@ -141,6 +163,10 @@ module axi_jls_ctrl #(
 
     assign in_rd_en = feed_go;
 
+    // width-1 / height-1 for the core; dims_ok bounds both to 1..16384
+    wire [14:0] width_m1  = r_width  - 15'd1;
+    wire [14:0] height_m1 = r_height - 15'd1;
+
     always @(posedge clk) begin
         if(rst_any) begin
             feed_state <= F_IDLE;
@@ -157,9 +183,9 @@ module axi_jls_ctrl #(
 
             case(feed_state)
                 F_IDLE: begin
-                    if(sof_strobe) begin
-                        enc_w      <= r_width  - 14'd1;
-                        enc_h      <= r_height - 14'd1;
+                    if(sof_strobe && dims_ok) begin
+                        enc_w      <= width_m1[13:0];
+                        enc_h      <= height_m1[13:0];
                         sof_cnt    <= SOF_HOLD_CYCLES[15:0];
                         feed_state <= F_SOF;
                     end
@@ -185,7 +211,7 @@ module axi_jls_ctrl #(
     wire        o_e, o_last;
     wire [15:0] o_data;
 
-    jls_encoder #(.NEAR(NEAR)) u_enc (
+    jls_encoder #(.NEAR(NEAR), .MAX_WIDTH(MAX_WIDTH)) u_enc (
         .rstn  (~rst_any),
         .clk   (clk),
         .i_sof (enc_sof),
@@ -211,10 +237,12 @@ module axi_jls_ctrl #(
             busy        <= 1'b0;
             done_sticky <= 1'b0;
             out_overflow_sticky <= 1'b0;
+            dim_error_sticky    <= 1'b0;
         end else begin
-            if(sof_strobe)        busy        <= 1'b1;
+            if(sof_strobe &&  dims_ok) busy             <= 1'b1;
+            if(sof_strobe && !dims_ok) dim_error_sticky <= 1'b1;
             if(o_e && o_last)  begin busy <= 1'b0; done_sticky <= 1'b1; end
-            if(done_clear)        done_sticky <= 1'b0;
+            if(done_clear)     begin done_sticky <= 1'b0; dim_error_sticky <= 1'b0; end
             if(o_e && out_full)   out_overflow_sticky <= 1'b1;
         end
     end
@@ -229,8 +257,17 @@ module axi_jls_ctrl #(
     wire w_in_pix = (w_addr[15:12] == 4'h1);
     wire w_in_reg = (w_addr[15:12] == 4'h0);
 
-    // Stall wready only when the beat would push into a full input FIFO.
-    wire w_stall = w_in_pix && in_full;
+    // s_wready is registered and a pixel reaches the FIFO through the
+    // registered in_wr_en, so in_count trails the accepted beats by up to
+    // two. Only offer wready for a pixel beat when a FIFO slot is free after
+    // counting the queued write and the beat accepted this cycle; reads by
+    // the feeder only free slots. Register beats are never stalled.
+    wire        w_beat_pix  = s_wvalid && s_wready && w_in_pix;
+    wire [12:0] in_claimed  = in_count + in_wr_en + w_beat_pix;
+    wire        in_room     = (in_claimed < IN_FIFO_DEPTH);
+    wire [31:0] w_next_addr = (s_wvalid && s_wready) ? (w_addr + 32'd4) : w_addr;
+    wire        w_next_pix  = (w_next_addr[15:12] == 4'h1);
+    wire        aw_pix      = (s_awaddr[15:12] == 4'h1);
 
     always @(posedge clk) begin
         if(rst_any) begin
@@ -245,8 +282,8 @@ module axi_jls_ctrl #(
             soft_reset <= 1'b0;
             sof_strobe <= 1'b0;
             done_clear <= 1'b0;
-            r_width    <= 14'd0;
-            r_height   <= 14'd0;
+            r_width    <= 15'd0;
+            r_height   <= 15'd0;
         end else begin
             // One-cycle default pulses
             in_wr_en   <= 1'b0;
@@ -260,12 +297,12 @@ module axi_jls_ctrl #(
                     if(s_awvalid && s_awready) begin
                         w_addr    <= s_awaddr;
                         s_awready <= 1'b0;
-                        s_wready  <= 1'b1;
+                        s_wready  <= ~aw_pix | in_room;
                         w_state   <= W_DATA;
                     end
                 end
                 W_DATA: begin
-                    s_wready <= ~w_stall;
+                    s_wready <= ~w_next_pix | in_room;
 
                     if(s_wvalid && s_wready) begin
                         // Decode and act on this beat
@@ -280,9 +317,9 @@ module axi_jls_ctrl #(
                                     done_clear <= s_wdata[2];
                                 end
                                 8'h04: if(s_wstrb[0] || s_wstrb[1])
-                                           r_width  <= s_wdata[13:0];
+                                           r_width  <= s_wdata[14:0];
                                 8'h08: if(s_wstrb[0] || s_wstrb[1])
-                                           r_height <= s_wdata[13:0];
+                                           r_height <= s_wdata[14:0];
                                 default: ;
                             endcase
                         end
@@ -325,10 +362,11 @@ module axi_jls_ctrl #(
         status_word[1]     = done_sticky;
         status_word[2]     = in_full;
         status_word[3]     = out_empty;
-        // in_count is $clog2(1024)+1 = 11 bits; out_count is $clog2(256)+1 = 9 bits
-        status_word[8  +: 11] = in_count;
-        status_word[16 +: 9]  = out_count;
-        status_word[28]       = out_overflow_sticky;
+        status_word[4]     = out_overflow_sticky;
+        status_word[5]     = dim_error_sticky;
+        // disjoint 12-bit count fields; depths are limited to 2048 above
+        status_word[19:8]  = in_count;
+        status_word[31:20] = out_count;
     end
 
     always @(posedge clk) begin
@@ -371,10 +409,12 @@ module axi_jls_ctrl #(
                         end else begin
                             case(r_addr[7:0])
                                 8'h00: s_rdata <= 32'd0;
-                                8'h04: s_rdata <= {18'd0, r_width};
-                                8'h08: s_rdata <= {18'd0, r_height};
+                                8'h04: s_rdata <= {17'd0, r_width};
+                                8'h08: s_rdata <= {17'd0, r_height};
                                 8'h0C: s_rdata <= status_word;
                                 8'h10: s_rdata <= NEAR;
+                                8'h14: s_rdata <= MAX_WIDTH;
+                                8'h18: s_rdata <= (OUT_FIFO_DEPTH << 16) | IN_FIFO_DEPTH;
                                 default: s_rdata <= 32'hDEAD_BEEF;
                             endcase
                             s_rvalid <= 1'b1;

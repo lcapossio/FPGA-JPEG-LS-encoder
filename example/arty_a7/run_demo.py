@@ -48,6 +48,8 @@ REG_WIDTH   = 0x0004
 REG_HEIGHT  = 0x0008
 REG_STATUS  = 0x000C
 REG_NEAR    = 0x0010
+REG_MAXW    = 0x0014
+REG_FIFOD   = 0x0018
 PIX_IN_BASE = 0x1000
 OUT_BASE    = 0x2000
 
@@ -123,16 +125,18 @@ def decode_status(s: int):
         done         = bool(s & 0x2),
         in_full      = bool(s & 0x4),
         out_empty    = bool(s & 0x8),
-        in_count     = (s >> 8)  & 0x7FF,   # 11 bits, 0..1024
-        out_count    = (s >> 16) & 0x1FF,   # 9 bits, 0..256
-        out_overflow = bool((s >> 28) & 0x1),
+        out_overflow = bool(s & 0x10),
+        dim_error    = bool(s & 0x20),
+        in_count     = (s >> 8)  & 0xFFF,   # [19:8]
+        out_count    = (s >> 20) & 0xFFF,   # [31:20]
     )
 
 
 def format_status(st: dict[str, int | bool]) -> str:
     return (
         "busy={busy} done={done} in_full={in_full} out_empty={out_empty} "
-        "in_count={in_count} out_count={out_count} out_overflow={out_overflow}"
+        "in_count={in_count} out_count={out_count} out_overflow={out_overflow} "
+        "dim_error={dim_error}"
     ).format(**st)
 
 
@@ -198,9 +202,6 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
     w, h, pix = load_pgm(pgm_path)
     print(f"[pgm] {pgm_path}: {w}x{h} ({len(pix)} bytes)")
 
-    if w < 5 or w > 16384 or h < 1 or h > 16384:
-        raise ValueError(f"Image size {w}x{h} outside encoder range")
-
     transport = XilinxHwServerTransport(
         fpga_name="xc7a100t",
         bitfile=str(BITFILE).replace("\\", "/") if not no_program else None,
@@ -219,16 +220,35 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
         time.sleep(0.01)
         bridge.axi_write(REG_CTRL, 0)
 
+        # -- Build-time limits ------------------------------------------------
+        max_w    = bridge.axi_read(REG_MAXW) & 0xFFFF
+        fifo_d   = bridge.axi_read(REG_FIFOD)
+        in_depth = fifo_d & 0xFFFF
+        print(f"[axi] MAX_WIDTH={max_w} in_fifo={in_depth} out_fifo={fifo_d >> 16}")
+        if not (5 <= max_w <= 16384 and 1 <= in_depth <= 2048):
+            raise RuntimeError(
+                "MAX_WIDTH/FIFO_DEPTH registers read back invalid values: the "
+                "bitstream predates this register map, rebuild it with --build"
+            )
+        if not (5 <= w <= max_w and 1 <= h <= 16384):
+            raise ValueError(
+                f"Image size {w}x{h} unsupported by this bitstream "
+                f"(width 5..{max_w}, height 1..16384)"
+            )
+
         # -- Width / height --------------------------------------------------
         bridge.axi_write(REG_WIDTH,  w)
         bridge.axi_write(REG_HEIGHT, h)
-        rw = bridge.axi_read(REG_WIDTH)  & 0x3FFF
-        rh = bridge.axi_read(REG_HEIGHT) & 0x3FFF
+        rw = bridge.axi_read(REG_WIDTH)  & 0x7FFF
+        rh = bridge.axi_read(REG_HEIGHT) & 0x7FFF
         if rw != w or rh != h:
             raise RuntimeError(f"W/H readback mismatch: {rw}x{rh} != {w}x{h}")
 
         # -- SOF strobe ------------------------------------------------------
         bridge.axi_write(REG_CTRL, CTRL_SOF)
+        st = decode_status(bridge.axi_read(REG_STATUS))
+        if st["dim_error"]:
+            raise RuntimeError(f"Encoder rejected {w}x{h}: {format_status(st)}")
 
         # -- Push pixels while draining output in-between -------------------
         out_bytes = bytearray()
@@ -288,7 +308,7 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
                     "Output FIFO overflow detected during input push: "
                     f"{format_status(st)}"
                 )
-            free = 1024 - st["in_count"]
+            free = in_depth - st["in_count"]
             if free <= 0:
                 drain_some()
                 continue
