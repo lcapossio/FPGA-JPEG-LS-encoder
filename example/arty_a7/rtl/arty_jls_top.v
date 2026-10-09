@@ -65,11 +65,19 @@ module arty_jls_top (
     wire [3:0]  wstrb;
     wire        awvalid, awready, wvalid, wready, wlast, bvalid, bready;
     wire        arvalid, arready, rvalid, rready, rlast;
+    // Same FIFO sizing as fpgacapZero's own Arty example. run_demo.py only
+    // issues single and auto-increment transfers, never AXI bursts, so the
+    // 16-deep burst FIFO is enough and the command/response queues fit in
+    // distributed RAM.
     fcapz_ejtagaxi_xilinx7 #(
         .ADDR_W    (32),
         .DATA_W    (32),
-        .FIFO_DEPTH(256),
-        .TIMEOUT   (4096)
+        .FIFO_DEPTH(16),
+        .CMD_FIFO_DEPTH(16),
+        .RESP_FIFO_DEPTH(16),
+        .CMD_FIFO_MEMORY_TYPE("distributed"),
+        .TIMEOUT   (4096),
+        .DEBUG_EN  (0)
     ) u_ejtagaxi (
         .axi_clk(clk50),
         .axi_rst(rst),
