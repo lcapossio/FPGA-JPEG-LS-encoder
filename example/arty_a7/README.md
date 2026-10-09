@@ -13,7 +13,7 @@ End-to-end hardware demo of the JPEG-LS encoder on a [Digilent Arty A7-100T](htt
 │  - load .pgm        │                 │  ├─ MMCM 100 → 50 MHz          │
 │  - AXI writes pix   │                 │  ├─ fcapz_ejtagaxi_xilinx7     │
 │  - AXI reads .jls   │                 │  │    (AXI4 master)            │
-│  - JPEGLSdec verify │                 │  └─ axi_jls_ctrl               │
+│  - CharLS verify    │                 │  └─ axi_jls_ctrl               │
 └─────────────────────┘                 │       ├─ in_fifo (1024×8b)     │
                                         │       ├─ jls_encoder (NEAR=0)  │
                                         │       └─ out_fifo (256×17b)    │
@@ -40,7 +40,7 @@ Byte addresses (32-bit regs, little-endian):
 
 The input FIFO back-pressures via `s_wready` when full; every accepted pixel beat is stored. A `sof_strobe` with WIDTH/HEIGHT outside the ranges above does not start a frame and sets the sticky `dim_error` bit (cleared by `done_clear` or `soft_reset`); `run_demo.py` reads `MAX_WIDTH` and rejects larger images up front. The encoder's i_e is gated when the output FIFO approaches full (JTAG readback is much slower than the encoder, so without this the out FIFO would overflow).
 
-NEAR is a synthesis parameter — rebuild the bitstream to change it. The default is **0 (lossless)**, which enables the host-side roundtrip verification.
+NEAR is a synthesis parameter — rebuild the bitstream to change it. The default is **0 (lossless)**. `run_demo.py` reads it back from the NEAR register and verifies at that value.
 
 ## Prerequisites
 
@@ -49,6 +49,7 @@ NEAR is a synthesis parameter — rebuild the bitstream to change it. The defaul
 - `fcapz/` git submodule initialized: `git submodule update --init --recursive`
 - fpgacapZero Python host installed: `python -m pip install -e fcapz`
 - optional override for a different checkout: set `FCAPZ_ROOT`
+- CharLS via imagecodecs, used for verification (same pinned version as the simulation flow): `python -m pip install imagecodecs==2026.8.16 numpy`
 - Arty A7-100T connected via USB
 
 ## Build
@@ -65,18 +66,29 @@ Outputs:
 
 ## Run
 
-End-to-end (programs FPGA, encodes, decodes, byte-compares):
+End-to-end (programs FPGA, encodes, verifies):
 
 ```bash
 python run_demo.py --image ../../SIM/images/test001.pgm
+```
+
+Verification uses the same CharLS reference as the simulation flow (`SIM/run_sim.py`), at the NEAR read back from the bitstream:
+
+1. The drained stream must equal CharLS's own encoding of the image byte-for-byte (SPIFF header dropped, padded to an even length like the 16-bit output words).
+2. CharLS must decode it to the source dimensions with every pixel within NEAR of the source.
+
+Several images can be given at once; the FPGA is programmed only before the first one. The script prints a PASS/FAIL line per image and exits non-zero if any image fails:
+
+```bash
+python run_demo.py --image ../../SIM/images/test0{01,08,12,23}.pgm --out out/
 ```
 
 Options:
 
 - `--build` — build first, then run
 - `--no-program` — assume FPGA is already loaded
-- `--no-verify` — skip roundtrip check
-- `--out path.jls` — override default `<image>.jls`
+- `--no-verify` — skip the CharLS check
+- `--out path.jls` — override the default `<image>.jls`; with several images (or an existing directory) it is the output directory
 
 Combined one-shot:
 
@@ -86,7 +98,7 @@ python run_demo.py --build --image ../../SIM/images/test001.pgm
 
 ## Throughput expectations
 
-JTAG is the bottleneck. Typical observed speeds with the onboard FT2232H at 30 MHz TCK are a few hundred kB/s for AXI bursts. A 256×256 image (64 kB) takes on the order of a second to push in + a second to drain out.
+JTAG is the bottleneck, and the drain is the slow half: `run_demo.py` reads the output FIFO one word per `axi_read`, and each read is a separate hw_server round trip. Measured with Vivado 2025.2 hw_server: `test008.pgm` (205×191, 39 kB in, 42 kB out) takes about 206 s end to end, roughly 0.2 kB/s. A 512×512 image takes on the order of 20 minutes. Batching the drain (e.g. auto-increment `read_block` over the OUT window) is the obvious next speed-up.
 
 ## LEDs
 

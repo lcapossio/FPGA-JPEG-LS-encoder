@@ -221,12 +221,14 @@ Current default setup:
 - RTL dependency path: `./fcapz`
 - optional override for build scripts: `FCAPZ_ROOT`
 - Python package install: `python -m pip install -e fcapz`
+- the demo checks the board output against CharLS, as the simulation flow does,
+  so it also needs `imagecodecs==2026.8.16` and `numpy`
 
 Example setup:
 
 ```powershell
 git submodule update --init --recursive
-python -m pip install -e fcapz
+python -m pip install -e fcapz imagecodecs==2026.8.16 numpy
 python example/arty_a7/run_demo.py --build --image SIM/images/test008.pgm
 ```
 

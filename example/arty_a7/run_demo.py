@@ -11,15 +11,20 @@ End-to-end flow:
   3. load a .pgm image
   4. push pixels into the encoder over EJTAG-AXI (fpgacapZero)
   5. drain the encoded JPEG-LS byte stream over EJTAG-AXI
-  6. (optional) decode the .jls with ../SIM/JPEGLSdec.exe and byte-compare
-     against the source .pgm (lossless roundtrip check for NEAR=0)
+  6. verify the stream against CharLS (imagecodecs): byte-for-byte against
+     CharLS's own encoding of the image at the bitstream's NEAR, plus a CharLS
+     decode checked to be within NEAR of the source pixels
 
-The single-binary bitstream has NEAR baked in via synthesis. For this demo
-the compile-time value is 0 (lossless). See arty_jls_top.v to change it.
+The single-binary bitstream has NEAR baked in via synthesis (read back from
+the NEAR register). For this demo the compile-time value is 0 (lossless). See
+arty_jls_top.v to change it.
+
+Exits non-zero if any image fails to encode or verify.
 
 Usage:
     python run_demo.py --build                  # synth+impl+bitstream
     python run_demo.py --image test001.pgm      # end-to-end run
+    python run_demo.py --image a.pgm b.pgm      # several images, one programming
     python run_demo.py --image x.pgm --no-verify
     python run_demo.py --image x.pgm --build    # do everything
 """
@@ -27,7 +32,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -37,7 +44,7 @@ HERE           = Path(__file__).parent.resolve()
 JLS_ROOT       = HERE.parent.parent
 BITFILE        = HERE / "arty_jls_top.bit"
 BUILD_TCL      = HERE / "build.tcl"
-REF_DECODER    = JLS_ROOT / "SIM" / "JPEGLSdec.exe"
+RUN_SIM        = JLS_ROOT / "SIM" / "run_sim.py"
 FCAPZ_ROOT     = Path(
     os.environ.get("FCAPZ_ROOT", str(JLS_ROOT / "fcapz"))
 ).resolve()
@@ -69,7 +76,8 @@ def sh(cmd, **kw):
 # Build
 # ---------------------------------------------------------------------------
 def build_bitstream():
-    vivado = os.environ.get("VIVADO", "vivado")
+    # shutil.which also finds vivado.bat on Windows, which CreateProcess does not.
+    vivado = os.environ.get("VIVADO") or shutil.which("vivado") or "vivado"
     cmd = [vivado, "-mode", "batch", "-source", str(BUILD_TCL)]
     r = sh(cmd, cwd=HERE)
     if r.returncode != 0:
@@ -140,57 +148,11 @@ def format_status(st: dict[str, int | bool]) -> str:
     ).format(**st)
 
 
-def read_bridge_cfg(bridge, addr: int) -> int:
-    from fcapz.ejtagaxi import CMD_CONFIG, CMD_NOP
-
-    bridge._scan(CMD_CONFIG, addr=addr)
-    _, _, rdata, _ = bridge._scan(CMD_NOP)
-    return rdata
-
-
-def dump_bridge_debug(bridge) -> str:
-    regs = {
-        "resp_wr_count": 0x01A0,
-        "resp_wr0_data": 0x01A4,
-        "resp_wr0_meta": 0x01A8,
-        "resp_wr1_data": 0x01AC,
-        "resp_wr1_meta": 0x01B0,
-        "resp_wr2_data": 0x01B4,
-        "resp_wr2_meta": 0x01B8,
-        "resp_wr3_data": 0x01BC,
-        "resp_wr3_meta": 0x01C0,
-        "resp_cap_count": 0x01C4,
-        "resp_cap0_data": 0x01C8,
-        "resp_cap0_meta": 0x01CC,
-        "resp_cap1_data": 0x01D0,
-        "resp_cap1_meta": 0x01D4,
-        "resp_cap2_data": 0x01D8,
-        "resp_cap2_meta": 0x01DC,
-        "resp_cap3_data": 0x01E0,
-        "resp_cap3_meta": 0x01E4,
-        "axi_deq_count": 0x01E8,
-        "axi_deq0_addr": 0x01EC,
-        "axi_deq0_meta": 0x01F0,
-        "axi_deq1_addr": 0x01F4,
-        "axi_deq1_meta": 0x01F8,
-        "axi_deq2_addr": 0x01FC,
-        "axi_deq2_meta": 0x0200,
-        "axi_deq3_addr": 0x0204,
-        "axi_deq3_meta": 0x0208,
-    }
-    parts = []
-    for name, addr in regs.items():
-        try:
-            parts.append(f"{name}=0x{read_bridge_cfg(bridge, addr):08X}")
-        except Exception as e:
-            parts.append(f"{name}=<read failed: {e}>")
-    return " ".join(parts)
-
-
 # ---------------------------------------------------------------------------
 # Encode flow
 # ---------------------------------------------------------------------------
-def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
+def encode_image(pgm_path: Path, out_jls: Path, no_program: bool) -> int:
+    """Encode pgm_path on the board, write the stream to out_jls, return NEAR."""
     try:
         from fcapz.transport import XilinxHwServerTransport
         from fcapz.ejtagaxi import EjtagAxiController
@@ -224,7 +186,9 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
         max_w    = bridge.axi_read(REG_MAXW) & 0xFFFF
         fifo_d   = bridge.axi_read(REG_FIFOD)
         in_depth = fifo_d & 0xFFFF
-        print(f"[axi] MAX_WIDTH={max_w} in_fifo={in_depth} out_fifo={fifo_d >> 16}")
+        near     = bridge.axi_read(REG_NEAR) & 0x7
+        print(f"[axi] NEAR={near} MAX_WIDTH={max_w} "
+              f"in_fifo={in_depth} out_fifo={fifo_d >> 16}")
         if not (5 <= max_w <= 16384 and 1 <= in_depth <= 2048):
             raise RuntimeError(
                 "MAX_WIDTH/FIFO_DEPTH registers read back invalid values: the "
@@ -282,14 +246,12 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
                             post_status_msg = format_status(post_st)
                         except Exception as status_err:
                             post_status_msg = f"<status read failed: {status_err}>"
-                        bridge_debug = dump_bridge_debug(bridge)
                         raise RuntimeError(
                             "OUT_BASE read failed at "
                             f"word={out_word_idx} byte_off={len(out_bytes)} "
                             f"batch_idx={batch_idx} "
                             f"pre_status=({format_status(st)}) "
-                            f"post_status=({post_status_msg}) "
-                            f"bridge_debug=({bridge_debug})"
+                            f"post_status=({post_status_msg}): {e}"
                         ) from e
                     data = w32 & 0xFFFF
                     last = bool((w32 >> 16) & 1)
@@ -343,6 +305,7 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
               f"({N/dt/1024:.1f} kB/s in)")
         out_jls.write_bytes(out_bytes)
         print(f"[jls] wrote {out_jls} ({len(out_bytes)} bytes)")
+        return near
     finally:
         try:
             bridge.close()
@@ -351,30 +314,47 @@ def encode_image(pgm_path: Path, out_jls: Path, no_program: bool):
 
 
 # ---------------------------------------------------------------------------
-# Roundtrip verify
+# Verify against CharLS
 # ---------------------------------------------------------------------------
-def verify_roundtrip(jls_path: Path, src_pgm: Path):
-    if not REF_DECODER.exists():
-        print(f"[verify] skipping, decoder not at {REF_DECODER}")
-        return None
+def _load_run_sim():
+    """Reuse the simulation flow's CharLS helpers (SIM/run_sim.py)."""
+    spec = importlib.util.spec_from_file_location("run_sim", RUN_SIM)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
-    decoded = jls_path.with_suffix(".decoded.pgm")
-    # The reference decoder prints banners and can return a non-zero status
-    # even on success; trust file existence instead.
-    sh([str(REF_DECODER), f"-i{jls_path}", f"-o{decoded}"])
-    if not decoded.exists():
-        raise RuntimeError("Decoder did not produce an output file")
 
-    # Compare pixels only (skip PGM header)
-    _, _, ref_pix = load_pgm(src_pgm)
-    _, _, got_pix = load_pgm(decoded)
+def verify_charls(jls_path: Path, src_pgm: Path, near: int) -> bool:
+    rs = _load_run_sim()
+    np, imagecodecs = rs._import_codecs()
+    got = jls_path.read_bytes()
+    img = rs.expected_pixels(np, src_pgm, rs.MAX_W_LIMIT)
+    ok = True
 
-    if ref_pix == got_pix:
-        print(f"[verify] PASS: {len(ref_pix)} bytes match")
-        return True
-    diffs = sum(1 for a, b in zip(ref_pix, got_pix) if a != b)
-    print(f"[verify] FAIL: {diffs}/{len(ref_pix)} bytes differ")
-    return False
+    want = rs.charls_stream(np, imagecodecs, img, near)
+    if got == want:
+        print(f"[verify] stream matches CharLS byte-for-byte ({len(got)} bytes, NEAR={near})")
+    else:
+        n = min(len(got), len(want))
+        first = next((i for i in range(n) if got[i] != want[i]), n)
+        print(f"[verify] FAIL: stream differs from CharLS at byte {first} "
+              f"(got {len(got)} bytes, CharLS {len(want)} bytes)")
+        ok = False
+
+    try:
+        dec = imagecodecs.jpegls_decode(got)
+    except Exception as e:  # noqa: BLE001 - any decoder error is a failure
+        print(f"[verify] FAIL: CharLS cannot decode the stream: {e}")
+        return False
+    if dec.shape != img.shape:
+        print(f"[verify] FAIL: decoded shape {dec.shape} != {img.shape}")
+        return False
+    err = int(np.abs(dec.astype(np.int16) - img.astype(np.int16)).max())
+    if err > near:
+        print(f"[verify] FAIL: max |error| {err} > NEAR {near}")
+        return False
+    print(f"[verify] CharLS decode OK: max |error| {err} <= NEAR {near}")
+    return ok
 
 
 # ---------------------------------------------------------------------------
@@ -384,14 +364,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--build",       action="store_true",
                     help="Synthesize and write bitstream before running")
-    ap.add_argument("--image",       type=Path,
-                    help=".pgm image to encode")
+    ap.add_argument("--image",       type=Path, nargs="+",
+                    help=".pgm image(s) to encode")
     ap.add_argument("--out",         type=Path, default=None,
-                    help="output .jls (default: <image>.jls)")
+                    help="output .jls for a single image, or a directory "
+                         "(default: <image>.jls next to each image)")
     ap.add_argument("--no-program",  action="store_true",
                     help="Skip bitstream programming (assume FPGA already loaded)")
     ap.add_argument("--no-verify",   action="store_true",
-                    help="Skip decode+compare roundtrip")
+                    help="Skip the CharLS verification")
     args = ap.parse_args()
 
     if not args.build and not args.image:
@@ -400,13 +381,37 @@ def main():
     if args.build:
         build_bitstream()
 
-    if args.image:
-        if not args.image.is_file():
-            ap.error(f"image not found: {args.image}")
-        out = args.out if args.out else args.image.with_suffix(".jls")
-        encode_image(args.image, out, args.no_program)
-        if not args.no_verify:
-            verify_roundtrip(out, args.image)
+    if not args.image:
+        return
+    for img in args.image:
+        if not img.is_file():
+            ap.error(f"image not found: {img}")
+    out_dir = args.out if args.out and (len(args.image) > 1 or args.out.is_dir()) else None
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    results = []
+    for k, img in enumerate(args.image):
+        if out_dir:
+            out = out_dir / img.with_suffix(".jls").name
+        else:
+            out = args.out if args.out else img.with_suffix(".jls")
+        out.unlink(missing_ok=True)  # never verify a stale file
+        try:
+            # Program the bitstream once, before the first image.
+            near = encode_image(img, out, args.no_program or k > 0)
+            ok = True if args.no_verify else verify_charls(out, img, near)
+        except Exception as e:  # noqa: BLE001 - report and continue with the next image
+            print(f"[error] {img}: {e}")
+            ok = False
+        results.append((img, ok))
+
+    print()
+    for img, ok in results:
+        print(f"  {'PASS' if ok else 'FAIL'}  {img}")
+    failed = sum(1 for _, ok in results if not ok)
+    print(f"  {len(results) - failed}/{len(results)} passed")
+    sys.exit(1 if failed else 0)
 
 
 if __name__ == "__main__":
