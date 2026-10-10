@@ -12,9 +12,7 @@ set_location_assignment PIN_V16 -to CLOCK1_50
 set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to CLOCK1_50
 
 set_location_assignment PIN_C8 -to KEY[0]
-set_location_assignment PIN_C11 -to KEY[1]
 set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to KEY[0]
-set_instance_assignment -name IO_STANDARD "3.3-V LVCMOS" -to KEY[1]
 
 set_location_assignment PIN_DF35 -to LEDR[0]
 set_location_assignment PIN_DJ32 -to LEDR[1]
