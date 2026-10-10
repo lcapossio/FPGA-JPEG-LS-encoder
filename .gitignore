@@ -8,3 +8,8 @@ SIM/ex_trace.txt
 example/de25_nano/quartus_out/
 example/**/*.sof
 **/__pycache__/
+example/**/*.bit
+example/arty_a7/vivado_out/
+example/**/vivado*.jou
+example/**/vivado*.log
+example/**/dfx_runtime.txt
