@@ -61,3 +61,7 @@ jobs:
       - name: Arty AXI wrapper (NEAR=${{ matrix.near }})
         working-directory: SIM
         run: python run_sim.py --near ${{ matrix.near }} --ctrl
+
+      - name: Four-encoder wrapper (NEAR=${{ matrix.near }})
+        working-directory: SIM
+        run: python run_sim.py --near ${{ matrix.near }} --ctrl4

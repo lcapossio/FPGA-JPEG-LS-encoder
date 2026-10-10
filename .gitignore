@@ -5,7 +5,8 @@ SIM/**/*.jls
 SIM/**/*.decoded.pgm
 SIM/dec*.pgm
 SIM/ex_trace.txt
-example/de25_nano/quartus_out/
+SIM/out/
+example/**/quartus_out/
 example/**/*.sof
 **/__pycache__/
 example/**/*.bit
