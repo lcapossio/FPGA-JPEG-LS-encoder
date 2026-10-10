@@ -184,15 +184,15 @@ JPEGLSdec.exe test001.jls -otmp.pgm
 
 # FPGA Deployment
 
-Synthesized and implemented with Vivado 2025.2 on **Xilinx Artix-7 xc7a100tcsg324-1** (Arty A7-100T), targeting 62.5 MHz (16 ns period):
+Synthesized and implemented with Vivado 2025.2 on **Xilinx Artix-7 xc7a100tcsg324-1** (Arty A7-100T), targeting 62.5 MHz (16 ns period), with the default `MAX_WIDTH=1920`:
 
 | Logic LUTs  |  LUT-RAMs   |     FFs      |       BRAM        | Max Clock freq. |
 | :---------: | :---------: | :----------: | :---------------: | :-------------: |
-| 1910 (3.0%) | 288 (1.5%)  | 1010 (0.8%)  | 4 × RAMB36 (3.0%) |   ~63.8 MHz     |
+| 1944 (3.1%) | 288 (1.5%)  | 1019 (0.8%)  | 1 × RAMB18 (0.4%) |   ~63.2 MHz     |
 
-At 63.8 MHz, compression throughput is **63.8 Mpixel/s**, supporting:
+At 63.2 MHz, compression throughput is **63.2 Mpixel/s**, supporting:
 - **1920×1080 @ 30 fps** (full HD)
-- **1280×720 @ 69 fps** (720p)
+- **1280×720 @ 68 fps** (720p)
 
 On **Intel Agilex 5** (Terasic DE25-Nano, `A5EB013BB23BE4SR1`, Quartus Prime Pro 26.1) the same RTL meets timing at 150 MHz (Fmax 158.0 MHz, ceiling 150–160 MHz depending on placement; 1,287 ALMs and 4 M20Ks for the encoder, 2,875 ALMs for the whole demo design including the JTAG bridge), i.e. **1920×1080 @ 72 fps**. See [example/de25_nano](./example/de25_nano/README.md#build).
 
@@ -204,7 +204,7 @@ Synthesis scripts are in the [SYNTH](./SYNTH) directory:
 vivado -mode batch -source SYNTH/run_synth.tcl
 ```
 
-The pipeline was split into 12 stages (including a two-cycle stage e1→e2 to break the critical path through the context quantisation RAM), achieving a ~30% Fmax improvement over the original single-cycle stage e design (~49 MHz → ~63.8 MHz, measured post-route on `xc7a100tcsg324-1` at 16 ns constraint).
+The pipeline was split into 12 stages (including a two-cycle stage e1→e2 to break the critical path through the context quantisation RAM), achieving a ~30% Fmax improvement over the original single-cycle stage e design (~49 MHz → ~64 MHz, measured post-route on `xc7a100tcsg324-1` at 16 ns constraint).
 
 　
 
@@ -430,15 +430,15 @@ JPEGLSdec.exe test001.jls -otmp.pgm
 
 # FPGA 部署
 
-使用 Vivado 2025.2 在 **Xilinx Artix-7 xc7a100tcsg324-1**（Arty A7-100T）上综合和实现，目标频率 62.5 MHz（16 ns 周期）：
+使用 Vivado 2025.2 在 **Xilinx Artix-7 xc7a100tcsg324-1**（Arty A7-100T）上综合和实现，目标频率 62.5 MHz（16 ns 周期），使用默认的 `MAX_WIDTH=1920`：
 
 |  逻辑 LUT   |  LUT-RAM   |     FF       |       BRAM        | 最高时钟频率 |
 | :---------: | :--------: | :----------: | :---------------: | :----------: |
-| 1910 (3.0%) | 288 (1.5%) | 1010 (0.8%)  | 4 × RAMB36 (3.0%) |  ~63.8 MHz   |
+| 1944 (3.1%) | 288 (1.5%) | 1019 (0.8%)  | 1 × RAMB18 (0.4%) |  ~63.2 MHz   |
 
-63.8 MHz 下，压缩吞吐量为 **63.8 Mpixel/s**：
+63.2 MHz 下，压缩吞吐量为 **63.2 Mpixel/s**：
 - **1920×1080 @ 30 fps**（全高清）
-- **1280×720 @ 69 fps**（720p）
+- **1280×720 @ 68 fps**（720p）
 
 在 **Intel Agilex 5**（Terasic DE25-Nano，`A5EB013BB23BE4SR1`，Quartus Prime Pro 26.1）上，同一 RTL 在 150 MHz 下满足时序（Fmax 158.0 MHz，上限视布局而定，为 150–160 MHz；编码器占 1,287 ALM 和 4 个 M20K，含 JTAG 桥的整个演示设计共 2,875 ALM），即 **1920×1080 @ 72 fps**。参见 [example/de25_nano](./example/de25_nano/README.md#build)。
 
@@ -450,7 +450,7 @@ JPEGLSdec.exe test001.jls -otmp.pgm
 vivado -mode batch -source SYNTH/run_synth.tcl
 ```
 
-流水线拆分为 12 级（含 e1→e2 两周期级，用于打断经过上下文量化 RAM 的关键路径），相比原始单周期设计（~49 MHz）Fmax 提升约 30%（post-route 实测 `xc7a100tcsg324-1`、16 ns 约束下 ~63.8 MHz）。
+流水线拆分为 12 级（含 e1→e2 两周期级，用于打断经过上下文量化 RAM 的关键路径），相比原始单周期设计（~49 MHz）Fmax 提升约 30%（post-route 实测 `xc7a100tcsg324-1`、16 ns 约束下 ~64 MHz）。
 
 　
 
