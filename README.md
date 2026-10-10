@@ -194,9 +194,9 @@ At 63.8 MHz, compression throughput is **63.8 Mpixel/s**, supporting:
 - **1920×1080 @ 30 fps** (full HD)
 - **1280×720 @ 69 fps** (720p)
 
-On **Intel Agilex 5** (Terasic DE25-Nano, `A5EB013BB23BE4SR1`, Quartus Prime Pro 26.1) the same RTL meets timing at 150 MHz (Fmax 156.3 MHz, ceiling about 160 MHz; 5,755 ALMs for the whole demo design including the JTAG bridge), i.e. **1920×1080 @ 72 fps**. See [example/de25_nano](./example/de25_nano/README.md#build).
+On **Intel Agilex 5** (Terasic DE25-Nano, `A5EB013BB23BE4SR1`, Quartus Prime Pro 26.1) the same RTL meets timing at 150 MHz (Fmax 158.0 MHz, ceiling 150–160 MHz depending on placement; 1,287 ALMs and 4 M20Ks for the encoder, 2,875 ALMs for the whole demo design including the JTAG bridge), i.e. **1920×1080 @ 72 fps**. See [example/de25_nano](./example/de25_nano/README.md#build).
 
-The linebuffer depth follows `MAX_WIDTH`. With the older full-width configuration `MAX_WIDTH=16384`, the linebuffer is 16 KB and maps to 4 × RAMB36. Lowering `MAX_WIDTH` reduces the linebuffer depth and corresponding BRAM usage. The write-forward bypass is still separated so the RAM read port remains a clean `c_d_ram <= linebuffer[lb_raddr]`, avoiding fallback to distributed RAM. See [RTL/jls_encoder.v:1074-1094](./RTL/jls_encoder.v#L1074-L1094).
+The linebuffer depth follows `MAX_WIDTH`. With the older full-width configuration `MAX_WIDTH=16384`, the linebuffer is 16 KB and maps to 4 × RAMB36. Lowering `MAX_WIDTH` reduces the linebuffer depth and corresponding BRAM usage. The write-forward bypass is still separated so the RAM read port remains a clean `c_d_ram <= linebuffer[lb_raddr]`, avoiding fallback to distributed RAM. See [RTL/jls_encoder.v:1080-1098](./RTL/jls_encoder.v#L1080-L1098).
 
 Synthesis scripts are in the [SYNTH](./SYNTH) directory:
 
@@ -440,9 +440,9 @@ JPEGLSdec.exe test001.jls -otmp.pgm
 - **1920×1080 @ 30 fps**（全高清）
 - **1280×720 @ 69 fps**（720p）
 
-在 **Intel Agilex 5**（Terasic DE25-Nano，`A5EB013BB23BE4SR1`，Quartus Prime Pro 26.1）上，同一 RTL 在 150 MHz 下满足时序（Fmax 156.3 MHz，上限约 160 MHz；含 JTAG 桥的整个演示设计共 5,755 ALM），即 **1920×1080 @ 72 fps**。参见 [example/de25_nano](./example/de25_nano/README.md#build)。
+在 **Intel Agilex 5**（Terasic DE25-Nano，`A5EB013BB23BE4SR1`，Quartus Prime Pro 26.1）上，同一 RTL 在 150 MHz 下满足时序（Fmax 158.0 MHz，上限视布局而定，为 150–160 MHz；编码器占 1,287 ALM 和 4 个 M20K，含 JTAG 桥的整个演示设计共 2,875 ALM），即 **1920×1080 @ 72 fps**。参见 [example/de25_nano](./example/de25_nano/README.md#build)。
 
-线缓冲深度跟随 `MAX_WIDTH` 变化。旧的全宽配置 `MAX_WIDTH=16384` 时，16 KB 线缓冲会映射到 4 × RAMB36。减小 `MAX_WIDTH` 会缩小线缓冲深度并降低相应 BRAM 占用。write-forward 旁路仍然从 RAM 读端口上分离，使读端口保持为干净的 `c_d_ram <= linebuffer[lb_raddr]`，避免 Vivado 回退为分布式 RAM。参见 [RTL/jls_encoder.v:1074-1094](./RTL/jls_encoder.v#L1074-L1094)。
+线缓冲深度跟随 `MAX_WIDTH` 变化。旧的全宽配置 `MAX_WIDTH=16384` 时，16 KB 线缓冲会映射到 4 × RAMB36。减小 `MAX_WIDTH` 会缩小线缓冲深度并降低相应 BRAM 占用。write-forward 旁路仍然从 RAM 读端口上分离，使读端口保持为干净的 `c_d_ram <= linebuffer[lb_raddr]`，避免 Vivado 回退为分布式 RAM。参见 [RTL/jls_encoder.v:1080-1098](./RTL/jls_encoder.v#L1080-L1098)。
 
 综合脚本位于 [SYNTH](./SYNTH) 目录：
 

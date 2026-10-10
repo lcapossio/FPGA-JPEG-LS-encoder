@@ -49,9 +49,9 @@ Runs `quartus_sh -t build.tcl` (project in `quartus_out/`, reports in `quartus_o
 JLS_CLK_MHZ=125 python run_demo.py --build
 ```
 
-Quartus Prime Pro 26.1 results at the default 150 MHz: 5,755 of 46,800 ALMs (12 %) and worst-case slacks of setup +0.268 ns, hold +0.051 ns, recovery +4.125 ns and removal +0.300 ns (Fmax 156.3 MHz).
+Quartus Prime Pro 26.1 results at the default 150 MHz: 2,875 of 46,800 ALMs (6 %) and 6 M20K blocks for the whole design, of which the encoder takes 1,287 ALMs and 4 M20Ks. Worst-case slacks are setup +0.336 ns, hold +0.020 ns, recovery +3.838 ns and removal +0.296 ns (Fmax 158.0 MHz).
 
-Frequency sweep (worst-case multicorner slack, one fitter run per point):
+Frequency sweep (worst-case multicorner slack, one fitter run per point), run before the encoder's `B`/`N` context tables were moved into block RAM:
 
 | `JLS_CLK_MHZ` | Setup slack | Hold slack | Fmax (slow corner) | Timing |
 | --- | --- | --- | --- | --- |
@@ -65,7 +65,9 @@ Frequency sweep (worst-case multicorner slack, one fitter run per point):
 | 170 | −0.474 ns | +0.043 ns | 157.3 MHz | fails |
 | 180 | −0.555 ns | +0.051 ns | 163.7 MHz | fails |
 
-The ceiling is about 160 MHz, 2.5× the Artix-7 -1 (about 64 MHz). 160 MHz closes with no margin on this run, so the default stays at 150 MHz. The limiting path is the encoder's context update loop (the `B`/`C` bias update fed from the context RAM); the Hyper-Retimer reports it as "Insufficient Registers", because a loop cannot be retimed, only shortened.
+Before that change Quartus built the two tables from about 4,700 flip-flops, and the encoder took 4,171 ALMs. With the current RTL, 150 MHz closes at +0.336 ns (Fmax 158.0 MHz), while 160 MHz misses by 0.361 ns and 170 MHz by 0.760 ns.
+
+The ceiling is 150–160 MHz depending on placement, about 2.5× the Artix-7 -1 (about 64 MHz). 160 MHz closed with no margin in one run and missed by 0.36 ns in another, so the default stays at 150 MHz. The limiting path is the encoder's context update loop (the `B`/`C` bias update fed from the context RAM); the Hyper-Retimer reports it as "Insufficient Registers", because a loop cannot be retimed, only shortened.
 
 At 150 MHz the encoder (one pixel per clock, plus about 400 cycles per frame) sustains 150 Mpixel/s, i.e. 1920×1080 at 72 fps or 1280×720 at 162 fps. Over JTAG the demo is far slower than this; see [Run](#run).
 

@@ -510,6 +510,8 @@ reg  [ 7:0] e1_b;       // above pixel
 reg  [ 7:0] e1_c;       // above-left pixel
 reg         e1_s;       // sign from func_get_q (regular mode)
 reg  [ 8:0] e1_q;       // context index from func_get_q (before rune override)
+reg  [ 8:0] e1_qq;      // effective context: e1_q, or 365/0 for run end; registered
+                        // so the Nram/Bram read address is a plain register
 reg         e1_runi;    // in run mode
 reg         e1_rune;    // run end (d_e gated)
 reg         e1_rt;      // run-end type: func_is_near(d_b, d_w_a)
@@ -525,7 +527,7 @@ always @ (posedge clk) begin
     e1_sof <= d_sof & rstn;
     if(~rstn | d_sof) begin
         {e1_e, e1_fc, e1_lc, e1_eof, e1_ii, e1_x, e1_a, e1_b, e1_c,
-         e1_s, e1_q, e1_runi, e1_rune, e1_rt, e1_s_rune, e1_pre_px} <= 0;
+         e1_s, e1_q, e1_qq, e1_runi, e1_rune, e1_rt, e1_s_rune, e1_pre_px} <= 0;
     end else begin
         runi1 = 1'b0;
         rune1 = 1'b0;
@@ -546,6 +548,7 @@ always @ (posedge clk) begin
         e1_c      <= d_c;
         e1_s      <= s1;
         e1_q      <= q1;
+        e1_qq     <= (d_e & rune1) ? (func_is_near(d_b, d_w_a) ? 9'd365 : 9'd0) : q1;
         if(d_e) e1_runi <= runi1;
         e1_rune   <= d_e & rune1;
         e1_rt     <= func_is_near(d_b, d_w_a);
@@ -597,8 +600,10 @@ always @ (posedge clk) begin
         No  = 0;
         err = 0;
         // Effective context and sign — rune overrides q to 365/0 and uses its own sign.
-        // e1_q has a registered address: Cram/Nram/Bram reads start with stable address.
-        qq = e1_rune ? (e1_rt ? 9'd365 : 9'd0) : e1_q;
+        // Cram is read at e1_q and Nram/Bram at e1_qq, both registers, so the
+        // reads can map to block RAM with the address register absorbed.
+        // e1_qq == (e1_rune ? (e1_rt ? 365 : 0) : e1_q).
+        qq = e1_qq;
         s  = e1_rune ? e1_s_rune : e1_s;
         // Bypass: if previous e2 cycle wrote to e1_q, forward the written value.
         // Both e_q (registered output) and e1_q (registered input) are stable at start of cycle.
