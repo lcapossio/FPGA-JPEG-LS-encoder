@@ -123,4 +123,5 @@ JTAG is the bottleneck, and the drain is the slow half: `run_demo.py` reads the 
 | `rtl/sync_fifo.v`                  | Minimal BRAM-friendly sync FIFO                         |
 | `constraints/arty_jls.xdc`         | Pinout + clock constraints                              |
 | `build.tcl`                        | Vivado batch build                                      |
-| `run_demo.py`                      | One-script host driver                                  |
+| `run_demo.py`                      | Host driver: Vivado build, hw_server transport          |
+| `../common/jls_demo.py`            | Board-independent host flow, shared with the DE25-Nano demo |
