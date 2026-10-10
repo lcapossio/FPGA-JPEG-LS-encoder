@@ -18,7 +18,7 @@ rtl/de25_jls_top.v) and read back from the NEAR register.
 Exits non-zero if any image fails to encode or verify.
 
 Environment:
-    QUARTUS_ROOTDIR  Quartus install (tools taken from its bin64), else PATH
+    QUARTUS_ROOTDIR  Quartus install (tools from its bin64 or bin), else PATH
     JLS_JTAG_CABLE   quartus_pgm / quartus_stp cable name, e.g.
                      "DE25-Nano [USB-1]" (default: the only cable present)
 
@@ -57,10 +57,12 @@ def sh(cmd, **kw):
 def quartus_tool(name: str) -> str:
     root = os.environ.get("QUARTUS_ROOTDIR")
     if root:
-        for exe in (f"{name}.exe", name):
-            cand = Path(root) / "bin64" / exe
-            if cand.is_file():
-                return str(cand)
+        # bin64 on Windows, bin on Linux
+        for sub in ("bin64", "bin"):
+            for exe in (f"{name}.exe", name):
+                cand = Path(root) / sub / exe
+                if cand.is_file():
+                    return str(cand)
     found = shutil.which(name)
     if not found:
         raise RuntimeError(f"{name} not found: set QUARTUS_ROOTDIR or add Quartus bin64 to PATH")
