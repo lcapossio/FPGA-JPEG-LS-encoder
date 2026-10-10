@@ -206,15 +206,21 @@ The pipeline was split into 12 stages (including a two-cycle stage e1→e2 to br
 
 　
 
-## Arty A7 demo dependency: fpgacapZero
+## Hardware demos and their dependency: fpgacapZero
 
-The hardware demo in [example/arty_a7](./example/arty_a7) depends on the
-[`fcapz/`](./fcapz) git submodule, which tracks
+Two board demos encode images on real hardware over JTAG and check every
+stream against CharLS:
+
+- [example/arty_a7](./example/arty_a7): Digilent Arty A7-100T (Artix-7, Vivado)
+- [example/de25_nano](./example/de25_nano): Terasic DE25-Nano (Agilex 5, Quartus Prime Pro)
+
+Both share the AXI wrapper (`example/arty_a7/rtl/axi_jls_ctrl.v`) and the host
+flow ([`example/common/jls_demo.py`](./example/common/jls_demo.py)), and depend
+on the [`fcapz/`](./fcapz) git submodule, which tracks
 [fpgacapZero](https://github.com/lcapossio/fpgacapZero), for both:
 
-- the JTAG-to-AXI bridge RTL used by the Vivado build
-- the Python host package `fcapz` used by
-  [`example/arty_a7/run_demo.py`](./example/arty_a7/run_demo.py)
+- the JTAG-to-AXI bridge RTL (Xilinx 7-series and Intel wrappers)
+- the Python host package `fcapz` used by the `run_demo.py` scripts
 
 Current default setup:
 
