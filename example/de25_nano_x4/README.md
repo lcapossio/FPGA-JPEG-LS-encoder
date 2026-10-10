@@ -5,7 +5,7 @@
 
 Four `jls_encoder` instances on a [Terasic DE25-Nano](https://www.terasic.com.tw/) (Agilex 5, `A5EB013BB23BE4SR1`) encode the four vertical tiles of each image in parallel. One encoder takes one pixel per clock, so at 150 MHz the four together take 600 Mpixel/s: enough for 3840×2160 at 60 fps, which needs 498 Mpixel/s.
 
-Each tile is encoded as an independent, standard JPEG-LS image; a frame is four streams, and the receiver puts the decoded tiles side by side. A single standard stream would need JPEG-LS restart intervals instead, which means changes inside the encoder; this example keeps the verified encoder unchanged.
+Each tile is encoded as an independent, standard JPEG-LS image; a frame is four streams, and the receiver puts the decoded tiles side by side. A single standard stream is possible with JPEG-LS restart intervals, but for this design it compresses worse and needs far more block RAM; see [Tiles or restart intervals](#tiles-or-restart-intervals).
 
 It builds on the [single-encoder DE25 demo](../de25_nano/README.md) (same board files, IOPLL, JTAG bridge and timing gate) and uses the same encoder RTL.
 
@@ -79,6 +79,22 @@ Measured on the board at 150 MHz:
 The 4K frame takes the ideal 960 × 2160 cycles plus 977: the readers start once the first row is written, 960 cycles after the start (this overlaps the encoders' 513-cycle start-of-frame hold), and the encoder pipeline adds about 17. So 3840×2160 at 60 fps needs 124.5 MHz, and 150 MHz leaves 20 % headroom.
 
 Tiling costs some compression, because each tile has its own header, its own context statistics, and a first column with no left neighbour. The four tiles of the 4K test pattern take 1,723,456 bytes against 1,605,234 for the whole image encoded at once (+7.4 %); for `test008.pgm` it is 43,496 against 42,266 bytes (+2.9 %).
+
+## Tiles or restart intervals
+
+JPEG-LS restart intervals are the standard way to put independently coded parts of an image into one stream: a `DRI` marker sets the interval in rows, and an `RSTm` marker follows every interval. At each marker the decoder resets its context statistics, its run index and its line buffers, so the first row of an interval has no row above. CharLS and the JPEG reference software (libjpeg) both decode this way. An interval of R rows is therefore exactly the scan data of those R rows encoded as a separate image, and `jls_encoder` could produce it unchanged; only the header and the markers between intervals would differ. Splicing CharLS band encodings this way gives streams that CharLS decodes exactly for every interval and NEAR value tried.
+
+Four encoders would then take the bands of R rows in turn, so with raster input each encoder has to hold about a whole band while it codes it, and the finished bands have to wait in output buffers to leave in order. At 3840 pixels wide that is roughly 4·R·3840 bytes of input buffering plus the output buffers: about half the A5EB013's block RAM at R = 16, and about all of it at R = 32. Latency grows from about one row to about one band.
+
+Compression is also worse than with tiles, since every band starts with no row above and with fresh statistics. Size against the whole image coded at once (lossless, CharLS):
+
+| Image | 4 tiles | R = 8 | R = 16 | R = 32 | R = 64 |
+| --- | --- | --- | --- | --- | --- |
+| 512×512 photographs (`test012`–`test015`) | −0.0 to +0.5 % | +6.8 to +8.1 % | +4.0 to +4.7 % | +2.2 to +2.5 % | +1.1 to +1.3 % |
+| `test016.pgm`, 720×576 | +0.2 % | +4.6 % | +2.6 % | +1.4 % | +0.6 % |
+| 3840×2160 test pattern | +7.4 % | +18.7 % | +8.2 % | +2.9 % | +1.0 % |
+
+So this example uses tiles: they cost the least compression and the least memory, at the price of four streams per frame. Restart intervals are worth it only where one stream is a hard requirement, and then at R = 16 or so on this part.
 
 ## Files
 
