@@ -28,7 +28,7 @@ The bridge uses the same parameters as fpgacapZero's own DE25-Nano example (16-d
 
 ## Prerequisites
 
-- Quartus Prime Pro with Agilex 5 support (tested with 26.1). The scripts take the tools from `$QUARTUS_ROOTDIR/bin64`, or from `PATH`.
+- Quartus Prime Pro with Agilex 5 support (tested with 26.1). The scripts take the tools from `$QUARTUS_ROOTDIR/bin64` (or `bin`), or from `PATH`.
 - DE25-Nano connected over USB (check with `jtagconfig`)
 - `fcapz/` submodule initialized and its host package installed, plus CharLS for verification:
   `python -m pip install -e fcapz imagecodecs==2026.8.16 numpy`
