@@ -54,7 +54,7 @@ Quartus Prime Pro 26.1 results at 150 MHz:
 | JTAG bridge | ~1,490 | 2,645 | 0 |
 | **Whole design** | **7,804 of 46,800 (17 %)** | | **37 of 358 (10 %)** |
 
-Timing closes with setup slack +0.035 ns (Fmax 150.8 MHz), hold +0.038 ns. The limiting path is the same as in the single-encoder build, the encoders' context update loop, not the new controller. With four encoders the margin is thinner than the single encoder's +0.336 ns, so 150 MHz is about the limit for this part.
+Timing closes with setup slack +0.035 ns (Fmax 150.8 MHz), hold +0.038 ns. The limiting path is the same as in the single-encoder build, the encoders' context update loop, not the new controller. With four encoders the margin is thinner than the single encoder's +0.336 ns, so 150 MHz is about the limit for this part, and a rebuild can land on a placement that misses it. In that case build with `JLS_CLK_MHZ=140` or `125`: 3840×2160 at 60 fps needs 124.5 MHz, so both still cover 4K60.
 
 ## Run
 
@@ -71,7 +71,7 @@ Measured on the board at 150 MHz:
 
 | Run | Size | Output | Time |
 | --- | --- | --- | --- |
-| `--pattern` | 3840×2160 | 1,723,456 bytes in four tiles (4.81:1); every tile's byte count and CRC match CharLS | 2,074,577 cycles = 13.83 ms: **72.3 fps, 600 Mpixel/s** |
+| `--pattern` | 3840×2160 | 1,723,456 bytes in four tiles (4.81:1 on this synthetic pattern; camera images compress less); every tile's byte count and CRC match CharLS | 2,074,577 cycles = 13.83 ms: **72.3 fps, 600 Mpixel/s** |
 | `test007.pgm` | 999×1 | 742 bytes, all four tiles byte-identical to CharLS | 1.9 s over JTAG |
 | `test023.pgm` | 115×1 | 248 bytes, all four tiles byte-identical to CharLS | 0.7 s over JTAG |
 | `test008.pgm` | 205×191 | 43,496 bytes, all four tiles byte-identical to CharLS | 623 s over JTAG |
