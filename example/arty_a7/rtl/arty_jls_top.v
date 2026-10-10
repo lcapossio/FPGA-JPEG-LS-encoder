@@ -134,8 +134,6 @@ module arty_jls_top (
         .leds      (led)
     );
 
-    // AXI PROT signals unused
-    assign awprot = 3'b000;
-    assign arprot = 3'b000;
+    // awprot/arprot are driven by the bridge and not used by the slave.
 
 endmodule
