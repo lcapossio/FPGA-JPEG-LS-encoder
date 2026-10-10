@@ -98,7 +98,7 @@ python run_demo.py --build --image ../../SIM/images/test001.pgm
 
 ## Throughput expectations
 
-JTAG is the bottleneck, and the drain is the slow half: `run_demo.py` reads the output FIFO one word per `axi_read`, and each read is a separate hw_server round trip. Measured with Vivado 2025.2 hw_server: `test008.pgm` (205×191, 39 kB in, 42 kB out) takes about 206 s end to end, roughly 0.2 kB/s. A 512×512 image takes on the order of 20 minutes. Batching the drain (e.g. auto-increment `read_block` over the OUT window) is the obvious next speed-up.
+JTAG is the bottleneck, and the drain is the slow half: `run_demo.py` reads the output FIFO one word per `axi_read`, and each read is a separate hw_server round trip. Measured with Vivado 2025.2 hw_server: `test008.pgm` (205×191, 39 kB in, 42 kB out) takes about 206 s end to end, roughly 0.2 kB/s. `test012.pgm` (512×512, 262 kB in, 148 kB out) takes about 912 s (15 minutes). Batching the drain (e.g. auto-increment `read_block` over the OUT window) is the obvious next speed-up.
 
 ## LEDs
 
